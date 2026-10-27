@@ -1,0 +1,37 @@
+[package]
+name = "wasapi-poc"
+version = "0.1.0"
+edition = "2021"
+description = "WASAPI loopback audio capture PoC for AI Live Translator"
+
+[[bin]]
+name = "wasapi-poc"
+path = "src/main.rs"
+
+[dependencies]
+# Windows API bindings for WASAPI
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_Devices_Properties",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Storage_StructuredStorage",
+] }
+
+# For threading and synchronization
+crossbeam-channel = "0.5"
+
+# For error handling
+anyhow = "1"
+thiserror = "1"
+
+# For logging
+log = "0.4"
+env_logger = "0.11"
+
+# For audio level computation
+[profile.release]
+opt-level = 3

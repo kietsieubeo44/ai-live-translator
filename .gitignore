@@ -1,0 +1,37 @@
+# Rust build artifacts
+target/
+**/target/
+Cargo.lock
+
+# Node.js dependencies & builds
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# AI Models (downloaded at runtime or via script)
+models/*.bin
+models/*.gguf
+
+# Logs & temp files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tauri generated files
+src-tauri/target/
+src-tauri/WixTools/

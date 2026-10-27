@@ -33,6 +33,10 @@ pub mod audio {
         app: AppHandle,
     ) -> Result<CaptureStatus, String> {
         let mut mgr = state.manager.lock().map_err(|e| e.to_string())?;
+        if mgr.get_status().is_capturing {
+            mgr.stop();
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
         let rx = mgr.start(&device_id).map_err(|e| e.to_string())?;
         let status = mgr.get_status();
 
@@ -110,7 +114,7 @@ pub mod audio {
 
         // Audio capture and VAD dispatcher thread
         std::thread::spawn(move || {
-            let mut vad = VadDetector::new(0.003);
+            let mut vad = VadDetector::new(0.001);
             let mut speech_buffer: Vec<f32> = Vec::with_capacity(64000);
             let mut silence_frames: usize = 0;
             let mut last_emit = std::time::Instant::now();
@@ -126,25 +130,31 @@ pub mod audio {
 
                         if !samples.is_empty() {
                             let mono_16k = resample_for_stt(&samples, sample_rate, channels);
-                            let is_speaking = vad.process_frame(&mono_16k) || rms > 0.005;
+                            let is_speaking = vad.process_frame(&mono_16k) || rms > 0.0012;
 
                             if is_speaking {
                                 speech_buffer.extend_from_slice(&mono_16k);
                                 silence_frames = 0;
                             } else if !speech_buffer.is_empty() {
                                 silence_frames += 1;
-                                if silence_frames <= 30 {
+                                if silence_frames <= 20 {
                                     speech_buffer.extend_from_slice(&mono_16k);
                                 }
                             }
 
-                            // Trigger STT when sentence pause is reached (>= 25 silence frames ~ 250ms)
-                            // and we have accumulated at least 1.2s of audio (19,200 samples)
-                            // OR when buffer reaches max live duration (3.5s = 56,000 samples)
-                            if (!speech_buffer.is_empty() && silence_frames >= 25 && speech_buffer.len() >= 19200)
-                                || speech_buffer.len() >= 56000
-                            {
+                            // Trigger STT when sentence pause is reached (>= 15 silence frames ~ 150ms)
+                            // with at least 0.5s of audio (8000 samples)
+                            // OR when buffer reaches max live duration (2.5s = 40,000 samples)
+                            let should_flush = (!speech_buffer.is_empty() && silence_frames >= 15 && speech_buffer.len() >= 8000)
+                                || (!speech_buffer.is_empty() && silence_frames >= 25 && speech_buffer.len() >= 6000)
+                                || speech_buffer.len() >= 40000;
+
+                            if should_flush {
                                 let _ = speech_tx.try_send(speech_buffer.clone());
+                                speech_buffer.clear();
+                                silence_frames = 0;
+                            } else if silence_frames > 35 && !speech_buffer.is_empty() {
+                                // Clear stale small noise
                                 speech_buffer.clear();
                                 silence_frames = 0;
                             }

@@ -149,12 +149,17 @@ export const useAppStore = create<AppState>((set) => ({
   },
   addSubtitle: (sub) =>
     set((state) => {
-      const cleanEn = sub.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-]/g, '');
-      if (!cleanEn) return state;
+      const cleanEn = sub.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-\[\]]/g, '');
+      if (!cleanEn || cleanEn === "music" || cleanEn === "blankaudio" || cleanEn === "applause") {
+        return state;
+      }
+
+      // Remove placeholder welcome subtitle when real audio subtitles start arriving
+      const existing = state.subtitles.filter((s) => s.id !== 1 || s.latency_ms !== 0);
 
       // Ignore if identical or matching any of the last 3 subtitles
-      const isDup = state.subtitles.slice(-3).some((s) => {
-        const existingClean = s.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-]/g, '');
+      const isDup = existing.slice(-3).some((s) => {
+        const existingClean = s.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-\[\]]/g, '');
         return existingClean === cleanEn;
       });
 
@@ -163,7 +168,7 @@ export const useAppStore = create<AppState>((set) => ({
       }
 
       return {
-        subtitles: [...state.subtitles.slice(-49), sub],
+        subtitles: [...existing.slice(-49), sub],
         interimTranscript: "",
       };
     }),

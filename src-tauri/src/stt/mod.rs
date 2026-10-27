@@ -397,10 +397,9 @@ impl SpeechToTextProvider for LocalWhisperEngine {
             return Ok(Vec::new());
         }
 
-        // Energy verification
+        // Energy verification: only reject absolute digital silence
         let energy = audio_16k_mono.iter().map(|&s| s * s).sum::<f32>() / audio_16k_mono.len() as f32;
-        if energy.sqrt() < 0.003 {
-            // Absolute silence
+        if energy.sqrt() < 0.0003 {
             return Ok(Vec::new());
         }
 
@@ -421,6 +420,12 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                     .arg("6")
                     .arg("--prompt")
                     .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
+
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
 
                 if let Ok(output) = cmd.output() {
                     let stdout = String::from_utf8_lossy(&output.stdout);

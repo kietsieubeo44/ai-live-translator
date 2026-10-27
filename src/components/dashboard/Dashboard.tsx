@@ -4,6 +4,8 @@ import { useAppStore } from "../../stores/useAppStore";
 import { Mic, MicOff, Volume2, Sparkles, Languages, Activity, Radio } from "lucide-react";
 
 export const Dashboard: React.FC = () => {
+  const subtitlesEndRef = React.useRef<HTMLDivElement>(null);
+
   const {
     devices,
     selectedDeviceId,
@@ -15,6 +17,10 @@ export const Dashboard: React.FC = () => {
     latestSuggestion,
     setActiveTab,
   } = useAppStore();
+
+  React.useEffect(() => {
+    subtitlesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [subtitles]);
 
   const handleToggleCapture = async () => {
     try {
@@ -165,7 +171,7 @@ export const Dashboard: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pt-3 pr-2">
+          <div className="flex-1 overflow-y-auto space-y-3 pt-3 pr-2 scroll-smooth">
             {subtitles.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm py-12">
                 <Mic className="w-8 h-8 mb-2 opacity-40" />
@@ -173,24 +179,27 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-slate-600">Play any English video or meeting to see live translation.</p>
               </div>
             ) : (
-              subtitles.slice(-6).map((sub, idx) => (
-                <div
-                  key={sub.id || idx}
-                  className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700/80 transition-all space-y-1.5"
-                >
-                  <p className="text-sm font-medium text-slate-100 leading-snug">
-                    {sub.original_en}
-                  </p>
-                  <p className="text-sm font-semibold text-amber-300/90 leading-snug">
-                    {sub.translated_vi}
-                  </p>
-                  {sub.latency_ms !== undefined && (
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      ⚡ {sub.latency_ms}ms latency
-                    </span>
-                  )}
-                </div>
-              ))
+              <>
+                {subtitles.map((sub, idx) => (
+                  <div
+                    key={sub.id || idx}
+                    className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700/80 transition-all space-y-1.5"
+                  >
+                    <p className="text-sm font-medium text-slate-100 leading-snug">
+                      {sub.original_en}
+                    </p>
+                    <p className="text-sm font-semibold text-amber-300/90 leading-snug">
+                      {sub.translated_vi}
+                    </p>
+                    {sub.latency_ms !== undefined && (
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        ⚡ {sub.latency_ms}ms latency
+                      </span>
+                    )}
+                  </div>
+                ))}
+                <div ref={subtitlesEndRef} />
+              </>
             )}
           </div>
         </div>

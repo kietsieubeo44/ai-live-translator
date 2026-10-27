@@ -148,16 +148,33 @@ export const useAppStore = create<AppState>((set) => ({
     set({ audioLevel, audioPeakDbfs: Math.max(-60, Math.round(dbfs * 10) / 10) });
   },
   addSubtitle: (sub) =>
-    set((state) => ({
-      subtitles: [...state.subtitles.slice(-49), sub],
-      interimTranscript: "",
-    })),
+    set((state) => {
+      // Deduplicate: ignore if identical to the previous subtitle
+      const last = state.subtitles[state.subtitles.length - 1];
+      if (last && last.original_en.trim().toLowerCase() === sub.original_en.trim().toLowerCase()) {
+        return state;
+      }
+      return {
+        subtitles: [...state.subtitles.slice(-49), sub],
+        interimTranscript: "",
+      };
+    }),
   setInterimTranscript: (interimTranscript) => set({ interimTranscript }),
   setLatestSuggestion: (latestSuggestion) =>
-    set((state) => ({
-      latestSuggestion,
-      suggestionHistory: latestSuggestion ? [latestSuggestion, ...state.suggestionHistory.slice(0, 19)] : state.suggestionHistory,
-    })),
+    set((state) => {
+      if (!latestSuggestion) return state;
+      if (
+        state.latestSuggestion &&
+        state.latestSuggestion.question.question_text.trim().toLowerCase() ===
+          latestSuggestion.question.question_text.trim().toLowerCase()
+      ) {
+        return state;
+      }
+      return {
+        latestSuggestion,
+        suggestionHistory: [latestSuggestion, ...state.suggestionHistory.slice(0, 19)],
+      };
+    }),
   setSelectedVariantStyle: (selectedVariantStyle) => set({ selectedVariantStyle }),
   toggleOverlayCollapse: () => set((state) => ({ isOverlayCollapsed: !state.isOverlayCollapsed })),
   setActiveTab: (activeTab) => set({ activeTab }),

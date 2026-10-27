@@ -81,37 +81,45 @@ impl TechnicalGlossary {
     }
 }
 
-// ─── Local Rule/Dictionary Translation Provider ───────────────────────────────
+// ─── Local Rule/Dictionary & Fast Online Translation Provider ──────────────────
 
 pub struct LocalDictionaryTranslationProvider {
     glossary: TechnicalGlossary,
+    client: reqwest::blocking::Client,
     cache: Mutex<HashMap<String, String>>,
 }
 
 impl LocalDictionaryTranslationProvider {
     pub fn new() -> Self {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_millis(1500))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+            .unwrap_or_default();
+
         LocalDictionaryTranslationProvider {
             glossary: TechnicalGlossary::new(),
+            client,
             cache: Mutex::new(HashMap::new()),
         }
     }
 }
 
 impl TranslationProvider for LocalDictionaryTranslationProvider {
-    fn translate(&self, text: &str, _from: &str, _to: &str) -> Result<String> {
+    fn translate(&self, text: &str, _from: &str, to: &str) -> Result<String> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Ok(String::new());
         }
 
-        // Check cache
+        // 1. Check in-memory cache
         if let Ok(cache) = self.cache.lock() {
             if let Some(cached) = cache.get(trimmed) {
                 return Ok(cached.clone());
             }
         }
 
-        // 1. Direct phrase lookup
+        // 2. Direct phrase lookup from technical meeting glossary
         if let Some(vi) = self.glossary.lookup_phrase(trimmed) {
             let result = format!("{}{}", vi, if trimmed.ends_with('?') { "?" } else { "" });
             if let Ok(mut cache) = self.cache.lock() {
@@ -120,10 +128,43 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
             return Ok(result);
         }
 
-        // 2. Contextual rule translation
+        // 3. High-speed auto-detect translation via Google Translate API (free, instant, auto-detects language)
+        let target_lang = if to.is_empty() { "vi" } else { to };
+        let resp = self.client
+            .get("https://translate.googleapis.com/translate_a/single")
+            .query(&[
+                ("client", "gtx"),
+                ("sl", "auto"),
+                ("tl", target_lang),
+                ("dt", "t"),
+                ("q", trimmed),
+            ])
+            .send();
+
+        if let Ok(response) = resp {
+            if let Ok(json) = response.json::<serde_json::Value>() {
+                if let Some(sentences) = json.get(0).and_then(|v| v.as_array()) {
+                    let mut translated = String::new();
+                    for s in sentences {
+                        if let Some(part) = s.get(0).and_then(|v| v.as_str()) {
+                            translated.push_str(part);
+                        }
+                    }
+                    let clean = translated.trim();
+                    if !clean.is_empty() {
+                        let final_trans = self.glossary.protect_keywords(clean);
+                        if let Ok(mut cache) = self.cache.lock() {
+                            cache.insert(trimmed.to_string(), final_trans.clone());
+                        }
+                        return Ok(final_trans);
+                    }
+                }
+            }
+        }
+
+        // 4. Local contextual rule translation fallback if offline
         let protected = self.glossary.protect_keywords(trimmed);
         
-        // Basic semantic heuristic for common English patterns
         let translated = if protected.to_lowercase().starts_with("can you") || protected.to_lowercase().starts_with("could you") {
             format!("Bạn có thể {} không?", &protected[7..].trim_end_matches('?'))
         } else if protected.to_lowercase().starts_with("what is") || protected.to_lowercase().starts_with("what are") {
@@ -145,7 +186,7 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
     }
 
     fn provider_name(&self) -> &str {
-        "Local Dictionary Engine"
+        "Auto-Detecting Real-Time Bilingual Engine"
     }
 
     fn is_local(&self) -> bool {

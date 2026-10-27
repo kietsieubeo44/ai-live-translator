@@ -66,9 +66,6 @@ pub mod audio {
                             "latency_ms": seg.timestamp_ms
                         });
                         let _ = app_worker.emit("bilingual-subtitle", &sub_payload);
-                        if let Some(w) = app_worker.get_webview_window("main") {
-                            let _ = w.emit("bilingual-subtitle", &sub_payload);
-                        }
 
                         conversation_context.push_str(" ");
                         conversation_context.push_str(&seg.text);
@@ -105,9 +102,6 @@ pub mod audio {
                                 "is_manual": false
                             });
                             let _ = app_worker.emit("answer-suggestion", &ans_payload);
-                            if let Some(w) = app_worker.get_webview_window("main") {
-                                let _ = w.emit("answer-suggestion", &ans_payload);
-                            }
                         }
                     }
                 }
@@ -124,9 +118,6 @@ pub mod audio {
                 match msg {
                     crate::audio::AudioMessage::PcmChunk { samples, rms, sample_rate, channels } => {
                         let _ = app.emit("audio-level", rms);
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.emit("audio-level", rms);
-                        }
 
                         if !samples.is_empty() {
                             let mono_16k = resample_for_stt(&samples, sample_rate, channels);

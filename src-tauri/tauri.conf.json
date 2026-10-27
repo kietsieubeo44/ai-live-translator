@@ -4,8 +4,6 @@
   "version": "0.1.0",
   "identifier": "com.ailivetranslator.app",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
@@ -15,11 +13,13 @@
       {
         "title": "AI Live Translator & Smart Answer Assistant",
         "label": "main",
+        "url": "index.html",
         "width": 960,
         "height": 680,
         "resizable": true,
         "decorations": true,
-        "center": true
+        "center": true,
+        "visible": true
       },
       {
         "title": "Live Subtitles Overlay",

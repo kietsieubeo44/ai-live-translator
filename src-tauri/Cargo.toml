@@ -70,4 +70,5 @@ custom-protocol = ["tauri/custom-protocol"]
 [profile.release]
 opt-level = 3
 lto = true
-strip = true
+strip = false
+debug = 1

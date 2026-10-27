@@ -1,6 +1,6 @@
 import React from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { Move, Minus, Maximize2, Sparkles, Volume2 } from "lucide-react";
+import { Move, Minus, Maximize2, Sparkles } from "lucide-react";
 
 export const SubtitleOverlay: React.FC = () => {
   const {

@@ -23,8 +23,10 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.open_devtools();
+                if std::env::var("TAURI_DEVTOOLS").is_ok() {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.open_devtools();
+                    }
                 }
             }
             Ok(())

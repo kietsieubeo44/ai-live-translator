@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export interface AudioDevice {
-  id: String;
+  id: string;
   name: string;
   is_default: boolean;
   channels: number;

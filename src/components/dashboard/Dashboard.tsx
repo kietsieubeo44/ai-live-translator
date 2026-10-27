@@ -1,7 +1,7 @@
-import React, { useEffect } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import React from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
-import { Mic, MicOff, Volume2, Sparkles, Languages, Settings as SettingsIcon, History, Activity, Radio } from "lucide-react";
+import { Mic, MicOff, Volume2, Sparkles, Languages, Activity, Radio } from "lucide-react";
 
 export const Dashboard: React.FC = () => {
   const {
@@ -10,7 +10,6 @@ export const Dashboard: React.FC = () => {
     setSelectedDeviceId,
     isCapturing,
     setIsCapturing,
-    audioLevel,
     audioPeakDbfs,
     subtitles,
     latestSuggestion,

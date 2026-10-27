@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useAppStore } from "../../stores/useAppStore";
-import { Settings as SettingsIcon, Shield, Cpu, HardDrive, Volume2, Trash2, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Settings as SettingsIcon, Shield, Cpu, HardDrive, Volume2, Trash2, CheckCircle2 } from "lucide-react";
 
 export const SettingsModal: React.FC = () => {
   const {
@@ -11,7 +11,6 @@ export const SettingsModal: React.FC = () => {
   } = useAppStore();
 
   const [selectedModel, setSelectedModel] = useState("base.en");
-  const [providerMode, setProviderMode] = useState<"local" | "cloud">("local");
   const [clearedNotice, setClearedNotice] = useState(false);
 
   const handleClearHistory = () => {

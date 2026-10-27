@@ -39,6 +39,7 @@ pub fn run() {
             commands::stt::get_available_models,
             commands::stt::load_model,
             commands::translation::translate_text,
+            commands::translation::set_gemini_api_key,
             commands::answer::detect_and_answer,
             commands::answer::generate_answer_manual,
             commands::storage::save_session,

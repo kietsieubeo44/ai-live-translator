@@ -4,6 +4,7 @@ import { useAppStore } from "../../stores/useAppStore";
 import { Mic, MicOff, Volume2, Sparkles, Languages, Activity, Radio } from "lucide-react";
 
 export const Dashboard: React.FC = () => {
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const subtitlesEndRef = React.useRef<HTMLDivElement>(null);
 
   const {
@@ -19,6 +20,12 @@ export const Dashboard: React.FC = () => {
   } = useAppStore();
 
   React.useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
     subtitlesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [subtitles]);
 
@@ -171,7 +178,7 @@ export const Dashboard: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 pt-3 pr-2 scroll-smooth">
+          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto space-y-3 pt-3 pr-2 scroll-smooth">
             {subtitles.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-500 text-sm py-12">
                 <Mic className="w-8 h-8 mb-2 opacity-40" />

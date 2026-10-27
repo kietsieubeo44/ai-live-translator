@@ -149,11 +149,19 @@ export const useAppStore = create<AppState>((set) => ({
   },
   addSubtitle: (sub) =>
     set((state) => {
-      // Deduplicate: ignore if identical to the previous subtitle
-      const last = state.subtitles[state.subtitles.length - 1];
-      if (last && last.original_en.trim().toLowerCase() === sub.original_en.trim().toLowerCase()) {
+      const cleanEn = sub.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-]/g, '');
+      if (!cleanEn) return state;
+
+      // Ignore if identical or matching any of the last 3 subtitles
+      const isDup = state.subtitles.slice(-3).some((s) => {
+        const existingClean = s.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-]/g, '');
+        return existingClean === cleanEn;
+      });
+
+      if (isDup) {
         return state;
       }
+
       return {
         subtitles: [...state.subtitles.slice(-49), sub],
         interimTranscript: "",

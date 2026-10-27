@@ -143,6 +143,14 @@ impl AudioTextNormalizer {
 
 // ─── Transcript Deduplicator ──────────────────────────────────────────────────
 
+fn normalize_key(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+}
+
 pub struct TranscriptDeduplicator {
     last_confirmed_text: String,
     history: Vec<String>,
@@ -163,24 +171,36 @@ impl TranscriptDeduplicator {
             return None;
         }
 
-        // Exact match with recent history
-        if trimmed == self.last_confirmed_text {
+        let new_norm = normalize_key(trimmed);
+        if new_norm.is_empty() {
             return None;
         }
 
-        // Substring / overlapping check
-        if self.last_confirmed_text.ends_with(trimmed) {
+        let last_norm = normalize_key(&self.last_confirmed_text);
+
+        // Exact normalized match with last text
+        if new_norm == last_norm {
             return None;
         }
 
-        // If new text starts with the old text, extract only the delta
+        // Check if identical to any of the last 4 items in history
+        if self.history.iter().rev().take(4).any(|h| normalize_key(h) == new_norm) {
+            return None;
+        }
+
+        // Substring check: if last confirmed text ends with new text or contains it entirely
+        if !last_norm.is_empty() && last_norm.contains(&new_norm) {
+            return None;
+        }
+
+        // If new text starts with the old text, extract only the delta continuation
         let delta = if trimmed.starts_with(&self.last_confirmed_text) && !self.last_confirmed_text.is_empty() {
             trimmed[self.last_confirmed_text.len()..].trim().to_string()
         } else {
             trimmed.to_string()
         };
 
-        if delta.is_empty() {
+        if delta.is_empty() || normalize_key(&delta).is_empty() {
             return None;
         }
 
@@ -234,12 +254,35 @@ pub fn find_whisper_cli() -> Option<PathBuf> {
 }
 
 pub fn find_whisper_model() -> Option<PathBuf> {
-    let candidates = [
+    // 1. Prefer high-accuracy base.en model (much higher accuracy for Indian English and technical meetings)
+    let base_candidates = [
+        PathBuf::from("models/ggml-base.en.bin"),
+        PathBuf::from("../models/ggml-base.en.bin"),
+        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\ggml-base.en.bin"),
+    ];
+    for p in &base_candidates {
+        if p.exists() {
+            return Some(p.clone());
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p1 = parent.join("models").join("ggml-base.en.bin");
+            if p1.exists() { return Some(p1); }
+            if let Some(grandparent) = parent.parent() {
+                let p2 = grandparent.join("models").join("ggml-base.en.bin");
+                if p2.exists() { return Some(p2); }
+            }
+        }
+    }
+
+    // 2. Fall back to tiny.en model
+    let tiny_candidates = [
         PathBuf::from("models/ggml-tiny.en.bin"),
         PathBuf::from("../models/ggml-tiny.en.bin"),
         PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\ggml-tiny.en.bin"),
     ];
-    for p in &candidates {
+    for p in &tiny_candidates {
         if p.exists() {
             return Some(p.clone());
         }
@@ -367,23 +410,40 @@ impl SpeechToTextProvider for LocalWhisperEngine {
         let mut extracted_texts: Vec<String> = Vec::new();
 
         if let (Some(cli_path), Some(model_path)) = (&self.cli_path, &self.model_path) {
-            let temp_wav = std::env::temp_dir().join(format!("ai_live_chunk_{}.wav", self.segment_counter % 20));
+            let temp_wav = std::env::temp_dir().join(format!("ai_live_{}_{}.wav", std::process::id(), self.segment_counter));
             if write_wav_file(&temp_wav, audio_16k_mono, 16000).is_ok() {
-                if let Ok(output) = std::process::Command::new(cli_path)
-                    .arg("-m")
+                let mut cmd = std::process::Command::new(cli_path);
+                cmd.arg("-m")
                     .arg(model_path)
                     .arg("-f")
                     .arg(&temp_wav)
-                    .output()
-                {
+                    .arg("-t")
+                    .arg("6")
+                    .arg("--prompt")
+                    .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
+
+                if let Ok(output) = cmd.output() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     if let Ok(re) = regex::Regex::new(r"\[\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}\]\s*(.+)") {
                         for cap in re.captures_iter(&stdout) {
                             if let Some(m) = cap.get(1) {
                                 let txt = m.as_str().trim();
-                                if !txt.is_empty() && txt != "[BLANK_AUDIO]" {
+                                if !txt.is_empty() && txt != "[BLANK_AUDIO]" && !txt.starts_with('[') {
                                     extracted_texts.push(txt.to_string());
                                 }
+                            }
+                        }
+                    }
+                    if extracted_texts.is_empty() {
+                        for line in stdout.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() 
+                                && !trimmed.starts_with("whisper_") 
+                                && !trimmed.starts_with("main:") 
+                                && !trimmed.starts_with("system_info:") 
+                                && trimmed != "[BLANK_AUDIO]" 
+                            {
+                                extracted_texts.push(trimmed.to_string());
                             }
                         }
                     }

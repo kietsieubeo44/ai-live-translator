@@ -42,7 +42,7 @@ pub mod audio {
 
         // Worker thread: Executes Whisper STT on GPU, Dictionary Translation, and Smart Answer Engine
         std::thread::spawn(move || {
-            let mut whisper = LocalWhisperEngine::new("tiny.en");
+            let mut whisper = LocalWhisperEngine::new("base.en");
             let translator = LocalDictionaryTranslationProvider::new();
             let answer_engine = SmartAnswerEngine::new();
             let mut conversation_context = String::new();
@@ -113,11 +113,16 @@ pub mod audio {
             let mut vad = VadDetector::new(0.003);
             let mut speech_buffer: Vec<f32> = Vec::with_capacity(64000);
             let mut silence_frames: usize = 0;
+            let mut last_emit = std::time::Instant::now();
 
             while let Ok(msg) = rx.recv() {
                 match msg {
                     crate::audio::AudioMessage::PcmChunk { samples, rms, sample_rate, channels } => {
-                        let _ = app.emit("audio-level", rms);
+                        // Smoothly throttle audio level events to ~25fps to avoid IPC saturation
+                        if last_emit.elapsed().as_millis() >= 40 {
+                            let _ = app.emit("audio-level", rms);
+                            last_emit = std::time::Instant::now();
+                        }
 
                         if !samples.is_empty() {
                             let mono_16k = resample_for_stt(&samples, sample_rate, channels);
@@ -128,14 +133,16 @@ pub mod audio {
                                 silence_frames = 0;
                             } else if !speech_buffer.is_empty() {
                                 silence_frames += 1;
-                                if silence_frames <= 15 {
+                                if silence_frames <= 30 {
                                     speech_buffer.extend_from_slice(&mono_16k);
                                 }
                             }
 
-                            // Trigger STT when pause is reached or buffer reaches ~3 seconds
-                            if (!speech_buffer.is_empty() && silence_frames >= 10 && speech_buffer.len() >= 8000)
-                                || speech_buffer.len() >= 48000
+                            // Trigger STT when sentence pause is reached (>= 25 silence frames ~ 250ms)
+                            // and we have accumulated at least 1.2s of audio (19,200 samples)
+                            // OR when buffer reaches max live duration (3.5s = 56,000 samples)
+                            if (!speech_buffer.is_empty() && silence_frames >= 25 && speech_buffer.len() >= 19200)
+                                || speech_buffer.len() >= 56000
                             {
                                 let _ = speech_tx.try_send(speech_buffer.clone());
                                 speech_buffer.clear();
@@ -194,6 +201,12 @@ pub mod stt {
 
 pub mod translation {
     use crate::translation::{LocalDictionaryTranslationProvider, TranslationItem, TranslationProvider};
+
+    #[tauri::command]
+    pub fn set_gemini_api_key(key: String) -> Result<(), String> {
+        crate::translation::set_global_gemini_key(&key);
+        Ok(())
+    }
 
     #[tauri::command]
     pub fn translate_text(text: String) -> Result<TranslationItem, String> {

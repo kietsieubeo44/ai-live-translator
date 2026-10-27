@@ -19,20 +19,22 @@ export const Dashboard: React.FC = () => {
 
   const handleToggleCapture = async () => {
     try {
-      if (isTauri()) {
-        if (isCapturing) {
-          await invoke("stop_capture");
-          setIsCapturing(false);
-        } else {
-          await invoke("start_capture", { deviceId: selectedDeviceId });
-          setIsCapturing(true);
-        }
+      if (isCapturing) {
+        console.log("[Dashboard] Stopping capture...");
+        await invoke("stop_capture");
+        setIsCapturing(false);
       } else {
-        setIsCapturing(!isCapturing);
+        console.log("[Dashboard] Starting capture for device:", selectedDeviceId);
+        await invoke("start_capture", {
+          deviceId: selectedDeviceId,
+          device_id: selectedDeviceId,
+        });
+        setIsCapturing(true);
       }
-    } catch (e) {
-      console.error("Capture toggle failed:", e);
-      alert(`Audio loopback capture notice: ${e}`);
+    } catch (e: any) {
+      console.error("[Dashboard] Capture toggle failed:", e);
+      alert(`Could not start audio capture: ${e?.message || e}`);
+      setIsCapturing(false);
     }
   };
 

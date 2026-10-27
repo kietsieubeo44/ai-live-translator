@@ -187,7 +187,7 @@ impl WasapiCaptureManager {
         self.audio_sender = Some(tx.clone());
 
         let is_running = Arc::clone(&self.is_running);
-        let dev_id = device.id.clone();
+        let dev_id = if device_id == "default" { "default".to_string() } else { device.id.clone() };
 
         thread::spawn(move || {
             info!("Capture thread started: {}", dev_id);

@@ -26,33 +26,36 @@ export const App: React.FC = () => {
       setIsOverlayMode(true);
     }
 
-    // Initialize Tauri event listeners & device listing if running inside Tauri
+    // Initialize Tauri event listeners & device listing
     const initTauri = async () => {
       try {
-        if (isTauri()) {
-          // Enumerate output devices
-          const devs: any = await invoke("list_audio_devices");
-          if (Array.isArray(devs) && devs.length > 0) {
-            setDevices(devs);
-          }
-
-          // Listen for real-time audio levels
-          await listen<number>("audio-level", (event) => {
-            setAudioLevel(event.payload);
-          });
-
-          // Listen for bilingual subtitles
-          await listen<any>("bilingual-subtitle", (event) => {
-            addSubtitle(event.payload);
-          });
-
-          // Listen for smart answer suggestions
-          await listen<any>("answer-suggestion", (event) => {
-            setLatestSuggestion(event.payload);
-          });
+        console.log("[Tauri Init] Fetching audio output devices...");
+        const devs: any = await invoke("list_audio_devices");
+        console.log("[Tauri Init] Discovered audio devices:", devs);
+        if (Array.isArray(devs) && devs.length > 0) {
+          setDevices(devs);
         }
+
+        console.log("[Tauri Init] Subscribing to audio and subtitle events...");
+        // Listen for real-time audio levels
+        await listen<number>("audio-level", (event) => {
+          setAudioLevel(event.payload);
+        });
+
+        // Listen for bilingual subtitles
+        await listen<any>("bilingual-subtitle", (event) => {
+          console.log("[Tauri Event] New bilingual subtitle:", event.payload);
+          addSubtitle(event.payload);
+        });
+
+        // Listen for smart answer suggestions
+        await listen<any>("answer-suggestion", (event) => {
+          console.log("[Tauri Event] New smart answer suggestion:", event.payload);
+          setLatestSuggestion(event.payload);
+        });
+        console.log("[Tauri Init] Event subscriptions active!");
       } catch (e) {
-        console.warn("Tauri initialization error:", e);
+        console.warn("[Tauri Init] Not in Tauri or init failed:", e);
       }
     };
 

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
 import { Sparkles, Copy, Check, RefreshCw, Send, ShieldAlert, BookOpen } from "lucide-react";
 
@@ -31,44 +31,8 @@ export const AnswerPanel: React.FC = () => {
 
     setIsGenerating(true);
     try {
-      if (isTauri()) {
-        const suggestion = await invoke("generate_answer_manual", { context: manualQuery });
-        setLatestSuggestion(suggestion as any);
-      } else {
-        // Mock generation
-        setLatestSuggestion({
-          id: Date.now(),
-          question: {
-            id: Date.now(),
-            question_text: manualQuery,
-            question_type: "Manual",
-            confidence: 1.0,
-            needs_response: true,
-            context_snippet: "User requested prompt",
-          },
-          primary_answer_en: `Regarding ${manualQuery}: in my experience, focusing on maintainability and modular architecture produces the best outcome.`,
-          primary_answer_vi: `Về vấn đề ${manualQuery}: theo kinh nghiệm của tôi, việc chú trọng vào tính dễ bảo trì và kiến trúc module mang lại hiệu quả tốt nhất.`,
-          variants: [
-            {
-              style: "Professional",
-              text_en: `Regarding ${manualQuery}: in my experience, focusing on maintainability and modular architecture produces the best outcome.`,
-              text_vi: `Về vấn đề ${manualQuery}: theo kinh nghiệm của tôi, việc chú trọng vào tính dễ bảo trì và kiến trúc module mang lại hiệu quả tốt nhất.`,
-            },
-            {
-              style: "Concise",
-              text_en: `For ${manualQuery}, I prioritize modular design and automated testing.`,
-              text_vi: `Đối với ${manualQuery}, tôi ưu tiên thiết kế module hóa và kiểm thử tự động.`,
-            },
-            {
-              style: "Friendly",
-              text_en: `Great question about ${manualQuery}! I always love approaching this by keeping things simple and scalable.`,
-              text_vi: `Câu hỏi rất hay về ${manualQuery}! Tôi luôn thích tiếp cận vấn đề này theo cách đơn giản và dễ mở rộng.`,
-            },
-          ],
-          created_at_ms: Date.now(),
-          is_manual: true,
-        });
-      }
+      const suggestion = await invoke("generate_answer_manual", { context: manualQuery });
+      setLatestSuggestion(suggestion as any);
       setManualQuery("");
     } catch (err) {
       console.error(err);

@@ -47,17 +47,34 @@ pub enum AudioMessage {
     Stopped,
 }
 
-struct ComInitGuard;
+struct ComInitGuard {
+    need_uninit: bool,
+}
+
 impl ComInitGuard {
     fn new() -> Result<Self> {
         unsafe {
-            CoInitializeEx(None, COINIT_MULTITHREADED).ok().context("COM init failed")?;
+            let hr = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let code = hr.0 as u32;
+            if hr.is_ok() {
+                Ok(ComInitGuard { need_uninit: true })
+            } else if code == 0x80010106 {
+                // RPC_E_CHANGED_MODE: Already initialized as STA (e.g. by Tauri UI thread), COM is fully usable!
+                Ok(ComInitGuard { need_uninit: false })
+            } else {
+                hr.ok().context("COM init failed")?;
+                Ok(ComInitGuard { need_uninit: true })
+            }
         }
-        Ok(ComInitGuard)
     }
 }
+
 impl Drop for ComInitGuard {
-    fn drop(&mut self) { unsafe { CoUninitialize() }; }
+    fn drop(&mut self) {
+        if self.need_uninit {
+            unsafe { CoUninitialize() };
+        }
+    }
 }
 
 pub fn list_audio_devices() -> Result<Vec<AudioDevice>> {

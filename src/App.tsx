@@ -29,13 +29,6 @@ export const App: React.FC = () => {
     // Initialize Tauri event listeners & device listing
     const initTauri = async () => {
       try {
-        console.log("[Tauri Init] Fetching audio output devices...");
-        const devs: any = await invoke("list_audio_devices");
-        console.log("[Tauri Init] Discovered audio devices:", devs);
-        if (Array.isArray(devs) && devs.length > 0) {
-          setDevices(devs);
-        }
-
         console.log("[Tauri Init] Subscribing to audio and subtitle events...");
         // Listen for real-time audio levels
         await listen<number>("audio-level", (event) => {
@@ -55,7 +48,18 @@ export const App: React.FC = () => {
         });
         console.log("[Tauri Init] Event subscriptions active!");
       } catch (e) {
-        console.warn("[Tauri Init] Not in Tauri or init failed:", e);
+        console.warn("[Tauri Init] Event subscription failed:", e);
+      }
+
+      try {
+        console.log("[Tauri Init] Fetching audio output devices...");
+        const devs: any = await invoke("list_audio_devices");
+        console.log("[Tauri Init] Discovered audio devices:", devs);
+        if (Array.isArray(devs) && devs.length > 0) {
+          setDevices(devs);
+        }
+      } catch (e) {
+        console.warn("[Tauri Init] list_audio_devices failed:", e);
       }
     };
 

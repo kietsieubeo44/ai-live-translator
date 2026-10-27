@@ -4,12 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Live Translator & Smart Answer Assistant</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      window.addEventListener('error', function(e) {
+        console.error("Window Error:", e);
+        var errBox = document.getElementById('debug-error-box');
+        if (!errBox) {
+          errBox = document.createElement('div');
+          errBox.id = 'debug-error-box';
+          errBox.style = 'color: #f87171; background: #1e1b4b; border: 2px solid #ef4444; padding: 20px; font-family: monospace; font-size: 14px; position: fixed; top: 10px; left: 10px; right: 10px; z-index: 999999; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);';
+          document.body.appendChild(errBox);
+        }
+        errBox.innerHTML += '<div><b>[JS ERROR]</b> ' + e.message + ' (' + (e.filename || '') + ':' + e.lineno + ')</div>';
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        console.error("Unhandled Rejection:", e);
+      });
+    </script>
   </head>
   <body class="bg-slate-950 text-slate-100 antialiased font-sans select-none overflow-hidden">
-    <div id="root"></div>
+    <div id="root">
+      <div style="height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #020617; color: #94a3b8; font-family: system-ui, sans-serif;">
+        <div style="width: 40px; height: 40px; border: 3px solid #312e81; border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;"></div>
+        <div style="font-size: 16px; font-weight: 600; color: #f8fafc;">AI Live Translator</div>
+        <div style="font-size: 12px; margin-top: 4px;">Loading local interface...</div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

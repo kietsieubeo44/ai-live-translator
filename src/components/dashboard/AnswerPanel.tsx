@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
 import { Sparkles, Copy, Check, RefreshCw, Send, ShieldAlert, BookOpen } from "lucide-react";
 
@@ -30,9 +31,7 @@ export const AnswerPanel: React.FC = () => {
 
     setIsGenerating(true);
     try {
-      // @ts-ignore
-      if (window.__TAURI_INTERNALS__) {
-        const { invoke } = await import("@tauri-apps/api/core");
+      if (isTauri()) {
         const suggestion = await invoke("generate_answer_manual", { context: manualQuery });
         setLatestSuggestion(suggestion as any);
       } else {

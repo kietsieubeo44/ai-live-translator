@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "AI Live Translator & Smart Answer Assistant",
@@ -23,6 +24,7 @@
       {
         "title": "Live Subtitles Overlay",
         "label": "overlay",
+        "url": "index.html#overlay",
         "width": 780,
         "height": 180,
         "x": 300,
@@ -31,7 +33,8 @@
         "alwaysOnTop": true,
         "decorations": false,
         "transparent": true,
-        "shadow": false
+        "shadow": false,
+        "visible": false
       }
     ],
     "security": {

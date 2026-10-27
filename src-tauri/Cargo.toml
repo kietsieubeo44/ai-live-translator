@@ -5,7 +5,7 @@ edition = "2021"
 
 [lib]
 name = "ai_live_translator_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+crate-type = ["lib"]
 
 [[bin]]
 name = "ai-live-translator"

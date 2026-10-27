@@ -16,17 +16,38 @@
 
 ---
 
-## 2. Hướng dẫn khởi chạy ứng dụng
+## 2. Hướng dẫn khởi chạy ứng dụng (Mở app ở đâu và như thế nào?)
 
-### Chạy trực tiếp từ thư mục Release:
-File thực thi nằm tại:
-`src-tauri\target\release\ai-live-translator.exe`
+Bạn có thể mở ứng dụng theo 3 cách cực kỳ thuận tiện:
 
-Hoặc chạy chế độ phát triển:
-```powershell
-cd ai-live-translator
-pnpm dev    # Chạy giao diện React Vite
-```
+### Cách 1: Mở từ màn hình Desktop (Khuyên dùng)
+- Antigravity đã tạo sẵn shortcut ngay trên màn hình Desktop của bạn:
+  **`AI Live Translator`** (`C:\Users\kai.ngo\Desktop\AI Live Translator.lnk`)
+- Chỉ cần **nhấp đúp chuột (Double Click)** vào biểu tượng ngoài màn hình Desktop là ứng dụng mở lên ngay lập tức!
+
+### Cách 2: Chạy qua file kích hoạt nhanh `Run-App.bat`
+- Mở thư mục dự án: `c:\Users\kai.ngo\Downloads\Kai_ngo\ai-live-translator`
+- **Nhấp đúp chuột vào file `Run-App.bat`**. Ứng dụng sẽ tự động kích hoạt với đầy đủ model Whisper và GPU NVIDIA RTX 3050!
+
+### Cách 3: Chạy trực tiếp file thực thi (.exe)
+- File thực thi chính nằm tại:
+  `c:\Users\kai.ngo\Downloads\Kai_ngo\ai-live-translator\src-tauri\target\debug\ai-live-translator.exe`
+  và
+  `c:\Users\kai.ngo\Downloads\Kai_ngo\ai-live-translator\src-tauri\target\release\ai-live-translator.exe`
+- Nhấp đúp chuột vào file `.exe` để khởi chạy.
+
+---
+
+### Hướng dẫn kiểm thử với file video của bạn:
+Để kiểm thử với file video `"C:\Users\kai.ngo\Videos\2026-10-27 15-34-21.mp4"`:
+1. Mở app **AI Live Translator** (qua Desktop icon hoặc `Run-App.bat`).
+2. Tại mục **Windows Output Audio Device**, để mặc định là `Default Playback Device (Recommended)` (hoặc chọn `Speakers (OMEN Cam & Voice)` / `Speaker (Realtek)`).
+3. Nhấn nút xanh **Start Listening**.
+4. Mở video `"C:\Users\kai.ngo\Videos\2026-10-27 15-34-21.mp4"` (đã được cấu hình mở bằng Windows Media Player).
+5. Bạn sẽ thấy ngay:
+   - Thanh **PCM Signal Level** chuyển động theo âm thanh video (dao động từ `-10 dBFS` đến `-18 dBFS`).
+   - Cột **Live Bilingual Subtitles** hiển thị câu thoại tiếng Anh và bản dịch tiếng Việt thời gian thực (được tăng tốc bởi GPU NVIDIA RTX 3050).
+   - Cột **Smart Answer Assistant** tự động phân tích và đưa ra 3 phong cách trả lời gợi ý khi phát hiện câu hỏi!
 
 ---
 

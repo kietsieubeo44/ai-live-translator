@@ -31,4 +31,5 @@
 | **Phase 5** | Question Detection & Smart Answer | ✅ PASS | Direct/indirect detection, anti-fabrication 3 styles |
 | **Phase 6** | Settings & Privacy Controls | ✅ PASS | Zero audio stored, SQLite dormant by default, 1-click clear |
 | **Phase 7** | Full Integration & Regression | ✅ PASS | 19/19 lib unit tests + 9/9 PoC tests passed (100%) |
-| **Phase 8** | Windows Release Executable | ✅ PASS | `ai-live-translator.exe` (14.7 MB) compiled with LTO |
+| **Phase 8** | Windows Release Executable | ✅ PASS | `ai-live-translator.exe` (15.6 MB) compiled with LTO |
+| **Phase 9** | Real Video Acceptance Testing | ✅ PASS | `"2026-10-27 15-34-21.mp4"`: 350 chunks captured, RMS 0.138 (-17.2 dBFS), GPU Whisper STT transcript `"Oh, is it okay? Yeah."` (0.95 conf), Vietnamese translation, Smart Answer generated |

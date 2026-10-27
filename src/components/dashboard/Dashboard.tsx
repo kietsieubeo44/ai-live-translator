@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
 import { Mic, MicOff, Volume2, Sparkles, Languages, Settings as SettingsIcon, History, Activity, Radio } from "lucide-react";
 
@@ -18,10 +19,7 @@ export const Dashboard: React.FC = () => {
 
   const handleToggleCapture = async () => {
     try {
-      // In production Tauri environment, invokes commands
-      // @ts-ignore
-      if (window.__TAURI_INTERNALS__) {
-        const { invoke } = await import("@tauri-apps/api/core");
+      if (isTauri()) {
         if (isCapturing) {
           await invoke("stop_capture");
           setIsCapturing(false);
@@ -30,12 +28,11 @@ export const Dashboard: React.FC = () => {
           setIsCapturing(true);
         }
       } else {
-        // Dev/Mock mode toggle
         setIsCapturing(!isCapturing);
       }
     } catch (e) {
       console.error("Capture toggle failed:", e);
-      setIsCapturing(!isCapturing);
+      alert(`Audio loopback capture notice: ${e}`);
     }
   };
 

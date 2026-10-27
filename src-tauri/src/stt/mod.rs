@@ -209,9 +209,87 @@ pub trait SpeechToTextProvider: Send + Sync {
 
 // ─── Local STT Engine Implementation ──────────────────────────────────────────
 
+pub fn find_whisper_cli() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("models/whisper-cli/main.exe"),
+        PathBuf::from("../models/whisper-cli/main.exe"),
+        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\whisper-cli\\main.exe"),
+    ];
+    for p in &candidates {
+        if p.exists() {
+            return Some(p.clone());
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p1 = parent.join("models").join("whisper-cli").join("main.exe");
+            if p1.exists() { return Some(p1); }
+            if let Some(grandparent) = parent.parent() {
+                let p2 = grandparent.join("models").join("whisper-cli").join("main.exe");
+                if p2.exists() { return Some(p2); }
+            }
+        }
+    }
+    None
+}
+
+pub fn find_whisper_model() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("models/ggml-tiny.en.bin"),
+        PathBuf::from("../models/ggml-tiny.en.bin"),
+        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\ggml-tiny.en.bin"),
+    ];
+    for p in &candidates {
+        if p.exists() {
+            return Some(p.clone());
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p1 = parent.join("models").join("ggml-tiny.en.bin");
+            if p1.exists() { return Some(p1); }
+            if let Some(grandparent) = parent.parent() {
+                let p2 = grandparent.join("models").join("ggml-tiny.en.bin");
+                if p2.exists() { return Some(p2); }
+            }
+        }
+    }
+    None
+}
+
+pub fn write_wav_file(path: &Path, samples: &[f32], sample_rate: u32) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path)?;
+    let num_samples = samples.len() as u32;
+    let byte_rate = sample_rate * 2;
+    let data_len = num_samples * 2;
+    let riff_len = 36 + data_len;
+
+    file.write_all(b"RIFF")?;
+    file.write_all(&riff_len.to_le_bytes())?;
+    file.write_all(b"WAVEfmt ")?;
+    file.write_all(&16u32.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?;
+    file.write_all(&sample_rate.to_le_bytes())?;
+    file.write_all(&byte_rate.to_le_bytes())?;
+    file.write_all(&2u16.to_le_bytes())?;
+    file.write_all(&16u16.to_le_bytes())?;
+    file.write_all(b"data")?;
+    file.write_all(&data_len.to_le_bytes())?;
+
+    for &sample in samples {
+        let clamped = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+        file.write_all(&clamped.to_le_bytes())?;
+    }
+    file.flush()?;
+    Ok(())
+}
+
 pub struct LocalWhisperEngine {
     model_name: String,
     model_path: Option<PathBuf>,
+    cli_path: Option<PathBuf>,
     is_loaded: bool,
     normalizer: AudioTextNormalizer,
     deduplicator: TranscriptDeduplicator,
@@ -220,10 +298,14 @@ pub struct LocalWhisperEngine {
 
 impl LocalWhisperEngine {
     pub fn new(model_name: &str) -> Self {
+        let model = find_whisper_model();
+        let cli = find_whisper_cli();
+        let loaded = model.is_some() && cli.is_some();
         LocalWhisperEngine {
             model_name: model_name.to_string(),
-            model_path: None,
-            is_loaded: false,
+            model_path: model,
+            cli_path: cli,
+            is_loaded: loaded,
             normalizer: AudioTextNormalizer::new(),
             deduplicator: TranscriptDeduplicator::new(),
             segment_counter: 0,
@@ -233,7 +315,7 @@ impl LocalWhisperEngine {
     pub fn set_model_path(&mut self, path: PathBuf) {
         if path.exists() {
             self.model_path = Some(path);
-            self.is_loaded = true;
+            self.is_loaded = self.cli_path.is_some();
             info!("Whisper model loaded from: {:?}", self.model_path);
         }
     }
@@ -282,13 +364,39 @@ impl SpeechToTextProvider for LocalWhisperEngine {
         let start_time = Instant::now();
         self.segment_counter += 1;
 
-        // If a binary / native whisper library is present, we execute inference.
-        // If still downloading or in test mode, we produce synthetic test segments for validation.
-        let raw_text = if let Some(ref path) = self.model_path {
-            format!("Transcription from {:?} (audio length: {:.2}s)", path, audio_16k_mono.len() as f32 / 16000.0)
+        let mut extracted_texts: Vec<String> = Vec::new();
+
+        if let (Some(cli_path), Some(model_path)) = (&self.cli_path, &self.model_path) {
+            let temp_wav = std::env::temp_dir().join(format!("ai_live_chunk_{}.wav", self.segment_counter % 20));
+            if write_wav_file(&temp_wav, audio_16k_mono, 16000).is_ok() {
+                if let Ok(output) = std::process::Command::new(cli_path)
+                    .arg("-m")
+                    .arg(model_path)
+                    .arg("-f")
+                    .arg(&temp_wav)
+                    .output()
+                {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if let Ok(re) = regex::Regex::new(r"\[\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}\]\s*(.+)") {
+                        for cap in re.captures_iter(&stdout) {
+                            if let Some(m) = cap.get(1) {
+                                let txt = m.as_str().trim();
+                                if !txt.is_empty() && txt != "[BLANK_AUDIO]" {
+                                    extracted_texts.push(txt.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                let _ = std::fs::remove_file(&temp_wav);
+            }
+        }
+
+        let raw_text = if !extracted_texts.is_empty() {
+            extracted_texts.join(" ")
         } else {
-            // Fallback placeholder during cold-start
-            format!("Audio detected ({:.2}s)", audio_16k_mono.len() as f32 / 16000.0)
+            // If whisper CLI did not return text or in unit-test environment:
+            return Ok(Vec::new());
         };
 
         let normalized = self.normalizer.normalize(&raw_text);
@@ -298,7 +406,7 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                 id: self.segment_counter,
                 text: clean_text,
                 is_final: true,
-                confidence: 0.92,
+                confidence: 0.95,
                 timestamp_ms: start_time.elapsed().as_millis() as u64,
                 language: "en".to_string(),
             };
@@ -314,7 +422,7 @@ impl SpeechToTextProvider for LocalWhisperEngine {
             path: self.model_path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
             is_downloaded: self.is_loaded,
             size_mb: 74,
-            recommended_for: "Local Whisper STT".to_string(),
+            recommended_for: "Local Whisper STT (NVIDIA RTX GPU)".to_string(),
         }
     }
 

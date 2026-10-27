@@ -2,7 +2,10 @@
 // Bridges React frontend and Rust backend
 
 pub mod audio {
-    use crate::audio::{list_audio_devices as list_devs, AudioDevice, CaptureStatus, WasapiCaptureManager};
+    use crate::audio::{list_audio_devices as list_devs, resample_for_stt, AudioDevice, CaptureStatus, WasapiCaptureManager};
+    use crate::stt::{LocalWhisperEngine, SpeechToTextProvider, VadDetector};
+    use crate::translation::{LocalDictionaryTranslationProvider, TranslationProvider};
+    use crate::answer::SmartAnswerEngine;
     use std::sync::Mutex;
     use tauri::{AppHandle, Emitter, State};
 
@@ -33,12 +36,110 @@ pub mod audio {
         let rx = mgr.start(&device_id).map_err(|e| e.to_string())?;
         let status = mgr.get_status();
 
-        // Spawn background event dispatcher to stream audio levels and events to windows
+        // Channel to feed speech audio from capture thread to STT worker thread
+        let (speech_tx, speech_rx) = crossbeam_channel::bounded::<Vec<f32>>(32);
+        let app_worker = app.clone();
+
+        // Worker thread: Executes Whisper STT on GPU, Dictionary Translation, and Smart Answer Engine
         std::thread::spawn(move || {
+            let mut whisper = LocalWhisperEngine::new("tiny.en");
+            let translator = LocalDictionaryTranslationProvider::new();
+            let answer_engine = SmartAnswerEngine::new();
+            let mut conversation_context = String::new();
+            let mut sub_counter: u64 = 0;
+            let mut ans_counter: u64 = 0;
+
+            while let Ok(audio_chunk) = speech_rx.recv() {
+                if audio_chunk.is_empty() {
+                    continue;
+                }
+                if let Ok(segments) = whisper.transcribe(&audio_chunk) {
+                    for seg in segments {
+                        sub_counter += 1;
+                        let vi_text = translator.translate(&seg.text, "en", "vi").unwrap_or_else(|_| seg.text.clone());
+
+                        let _ = app_worker.emit("bilingual-subtitle", serde_json::json!({
+                            "id": sub_counter,
+                            "original_en": seg.text,
+                            "translated_vi": vi_text,
+                            "is_final": true,
+                            "latency_ms": seg.timestamp_ms
+                        }));
+
+                        conversation_context.push_str(" ");
+                        conversation_context.push_str(&seg.text);
+                        if conversation_context.len() > 1000 {
+                            conversation_context = conversation_context[conversation_context.len() - 800..].to_string();
+                        }
+
+                        // Check for questions and generate smart answers
+                        if let Some(question) = answer_engine.detector().detect_question(&seg.text, &conversation_context) {
+                            ans_counter += 1;
+                            let ans = answer_engine.generate_answer(&question, false);
+
+                            let _ = app_worker.emit("answer-suggestion", serde_json::json!({
+                                "id": ans_counter,
+                                "question": {
+                                    "id": question.id,
+                                    "question_text": question.question_text,
+                                    "question_type": format!("{:?}", question.question_type),
+                                    "confidence": question.confidence,
+                                    "needs_response": question.needs_response,
+                                    "context_snippet": question.context_snippet
+                                },
+                                "primary_answer_en": ans.primary_answer_en,
+                                "primary_answer_vi": ans.primary_answer_vi,
+                                "variants": ans.variants.into_iter().map(|v| serde_json::json!({
+                                    "style": format!("{:?}", v.style),
+                                    "text_en": v.text_en,
+                                    "text_vi": v.text_vi
+                                })).collect::<Vec<_>>(),
+                                "created_at_ms": std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64,
+                                "is_manual": false
+                            }));
+                        }
+                    }
+                }
+            }
+        });
+
+        // Audio capture and VAD dispatcher thread
+        std::thread::spawn(move || {
+            let mut vad = VadDetector::new(0.012);
+            let mut speech_buffer: Vec<f32> = Vec::with_capacity(64000);
+            let mut silence_frames: usize = 0;
+
             while let Ok(msg) = rx.recv() {
                 match msg {
-                    crate::audio::AudioMessage::PcmChunk { rms, .. } => {
+                    crate::audio::AudioMessage::PcmChunk { samples, rms, sample_rate, channels } => {
                         let _ = app.emit("audio-level", rms);
+
+                        if !samples.is_empty() {
+                            let mono_16k = resample_for_stt(&samples, sample_rate, channels);
+                            let is_speaking = vad.process_frame(&mono_16k) || rms > 0.015;
+
+                            if is_speaking {
+                                speech_buffer.extend_from_slice(&mono_16k);
+                                silence_frames = 0;
+                            } else if !speech_buffer.is_empty() {
+                                silence_frames += 1;
+                                if silence_frames <= 15 {
+                                    speech_buffer.extend_from_slice(&mono_16k);
+                                }
+                            }
+
+                            // Trigger STT when pause is reached or buffer reaches ~4 seconds
+                            if (!speech_buffer.is_empty() && silence_frames >= 15 && speech_buffer.len() >= 16000)
+                                || speech_buffer.len() >= 64000
+                            {
+                                let _ = speech_tx.try_send(speech_buffer.clone());
+                                speech_buffer.clear();
+                                silence_frames = 0;
+                            }
+                        }
                     }
                     crate::audio::AudioMessage::Error(err) => {
                         let _ = app.emit("audio-error", err);

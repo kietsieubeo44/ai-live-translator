@@ -163,11 +163,22 @@ impl WasapiCaptureManager {
             return Err(anyhow!("Capture already running"));
         }
 
-        let devices = list_audio_devices()?;
-        let device = devices
-            .into_iter()
-            .find(|d| d.id == device_id || (device_id == "default" && d.is_default))
-            .ok_or_else(|| anyhow!("Device not found: {}", device_id))?;
+        let devices = list_audio_devices().unwrap_or_default();
+        let device = if device_id == "default" {
+            devices.iter().find(|d| d.is_default).cloned()
+                .or_else(|| devices.first().cloned())
+                .unwrap_or(AudioDevice {
+                    id: "default".to_string(),
+                    name: "Default Audio Device".to_string(),
+                    is_default: true,
+                    channels: 2,
+                    sample_rate: 48000,
+                    bits_per_sample: 32,
+                })
+        } else {
+            devices.into_iter().find(|d| d.id == device_id)
+                .ok_or_else(|| anyhow!("Device not found: {}", device_id))?
+        };
 
         self.current_device = Some(device.clone());
         self.is_running.store(true, Ordering::SeqCst);
@@ -392,6 +403,7 @@ mod tests {
 
     #[test]
     fn test_list_devices_no_panic() {
-        let _ = list_audio_devices();
+        let devs = list_audio_devices();
+        println!("LIST AUDIO DEVICES RESULT: {:?}", devs);
     }
 }

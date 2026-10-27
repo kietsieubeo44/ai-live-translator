@@ -12,6 +12,9 @@ dist-ssr/
 # AI Models (downloaded at runtime or via script)
 models/*.bin
 models/*.gguf
+models/*.zip
+models/*.wav
+models/*.txt
 
 # Logs & temp files
 *.log

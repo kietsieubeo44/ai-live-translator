@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "./stores/useAppStore";
 import { Dashboard } from "./components/dashboard/Dashboard";
 import { SubtitleOverlay } from "./components/overlay/SubtitleOverlay";
@@ -14,7 +16,7 @@ import {
 } from "lucide-react";
 
 export const App: React.FC = () => {
-  const { activeTab, setActiveTab, setDevices, setAudioLevel, addSubtitle } = useAppStore();
+  const { activeTab, setActiveTab, setDevices, setAudioLevel, addSubtitle, setLatestSuggestion } = useAppStore();
   const [isOverlayMode, setIsOverlayMode] = useState(false);
 
   useEffect(() => {
@@ -27,14 +29,10 @@ export const App: React.FC = () => {
     // Initialize Tauri event listeners & device listing if running inside Tauri
     const initTauri = async () => {
       try {
-        // @ts-ignore
-        if (window.__TAURI_INTERNALS__) {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const { listen } = await import("@tauri-apps/api/event");
-
+        if (isTauri()) {
           // Enumerate output devices
           const devs: any = await invoke("list_audio_devices");
-          if (Array.isArray(devs)) {
+          if (Array.isArray(devs) && devs.length > 0) {
             setDevices(devs);
           }
 
@@ -47,14 +45,19 @@ export const App: React.FC = () => {
           await listen<any>("bilingual-subtitle", (event) => {
             addSubtitle(event.payload);
           });
+
+          // Listen for smart answer suggestions
+          await listen<any>("answer-suggestion", (event) => {
+            setLatestSuggestion(event.payload);
+          });
         }
       } catch (e) {
-        console.warn("Running in preview/browser mode without Tauri native backend:", e);
+        console.warn("Tauri initialization error:", e);
       }
     };
 
     initTauri();
-  }, [setDevices, setAudioLevel, addSubtitle]);
+  }, [setDevices, setAudioLevel, addSubtitle, setLatestSuggestion]);
 
   // If this window is the overlay, render ONLY the floating overlay widget
   if (isOverlayMode) {

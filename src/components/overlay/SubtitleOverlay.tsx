@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { useAppStore } from "../../stores/useAppStore";
 import { Move, Minus, Maximize2, Sparkles, X, ExternalLink, Eye } from "lucide-react";
 
@@ -31,8 +32,60 @@ export const SubtitleOverlay: React.FC = () => {
   ];
   const [fontSizeIdx, setFontSizeIdx] = useState(1);
 
+  // Size Presets for quick 1-click window resizing
+  const sizePresets = [
+    { label: "S", w: 650, h: 140, title: "Nhỏ (650 × 140 px)" },
+    { label: "M", w: 800, h: 180, title: "Vừa (800 × 180 px - Chuẩn)" },
+    { label: "L", w: 1020, h: 240, title: "Lớn (1020 × 240 px)" },
+    { label: "XL", w: 1300, h: 300, title: "Cực đại (1300 × 300 px)" },
+  ];
+  const [activePreset, setActivePreset] = useState<string>("M");
+
   const currentSub = subtitles[subtitles.length - 1];
   const prevSub = subtitles.length > 1 ? subtitles[subtitles.length - 2] : null;
+
+  // Window Drag Handler
+  const handleStartDrag = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, a, input, select, textarea, [role="button"], .no-drag, .resize-handle')) {
+      return;
+    }
+    e.preventDefault();
+    try {
+      getCurrentWindow().startDragging().catch(() => {
+        invoke("start_overlay_dragging").catch(console.warn);
+      });
+    } catch {
+      invoke("start_overlay_dragging").catch(console.warn);
+    }
+  };
+
+  // Window Resize Drag Handler (frameless edge / corner drag)
+  const handleResizeStart = (
+    e: React.MouseEvent,
+    direction: "East" | "South" | "SouthEast" | "SouthWest" | "West"
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      getCurrentWindow().startResizeDragging(direction).catch((err) => {
+        console.warn("startResizeDragging failed:", err);
+      });
+    } catch (err) {
+      console.warn("startResizeDragging error:", err);
+    }
+  };
+
+  // Apply Quick Preset Size
+  const handleSetPresetSize = async (w: number, h: number, label: string) => {
+    setActivePreset(label);
+    try {
+      await getCurrentWindow().setSize(new LogicalSize(w, h));
+    } catch {
+      await invoke("resize_overlay_window", { width: w, height: h }).catch(console.warn);
+    }
+  };
 
   const handleCloseOverlay = async () => {
     try {
@@ -66,9 +119,11 @@ export const SubtitleOverlay: React.FC = () => {
     return (
       <div
         data-tauri-drag-region
+        onMouseDown={handleStartDrag}
         className={`w-full h-full flex items-center justify-between px-3 py-1.5 ${opacities[opacityIdx].bg} backdrop-blur-md rounded-xl cursor-move select-none border shadow-2xl`}
       >
-        <div className="flex items-center gap-2">
+        <div data-tauri-drag-region className="flex items-center gap-2">
+          <Move className="w-3.5 h-3.5 text-indigo-400 opacity-80" />
           <span className={`w-2.5 h-2.5 rounded-full ${isCapturing ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
           <span className="text-xs font-semibold text-slate-200">AI Subtitles</span>
         </div>
@@ -95,15 +150,71 @@ export const SubtitleOverlay: React.FC = () => {
   return (
     <div
       data-tauri-drag-region
-      className={`w-full h-full flex flex-col justify-between p-3 ${opacities[opacityIdx].bg} backdrop-blur-md rounded-2xl cursor-move select-none border shadow-2xl overflow-hidden`}
+      onMouseDown={handleStartDrag}
+      className={`relative w-full h-full flex flex-col justify-between p-3 ${opacities[opacityIdx].bg} backdrop-blur-md rounded-2xl select-none border shadow-2xl overflow-hidden`}
     >
+      {/* Edge & Corner Resize Drag Zones */}
+      {/* Right Edge */}
+      <div
+        className="resize-handle absolute top-0 right-0 w-2.5 h-full cursor-e-resize z-30"
+        title="Kéo cạnh phải để đổi chiều rộng"
+        onMouseDown={(e) => handleResizeStart(e, "East")}
+      />
+      {/* Bottom Edge */}
+      <div
+        className="resize-handle absolute bottom-0 left-0 h-2.5 w-full cursor-s-resize z-30"
+        title="Kéo cạnh dưới để đổi chiều cao"
+        onMouseDown={(e) => handleResizeStart(e, "South")}
+      />
+      {/* Left Edge */}
+      <div
+        className="resize-handle absolute top-0 left-0 w-2.5 h-full cursor-w-resize z-30"
+        title="Kéo cạnh trái để đổi chiều rộng"
+        onMouseDown={(e) => handleResizeStart(e, "West")}
+      />
+      {/* Bottom-Left Corner */}
+      <div
+        className="resize-handle absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize z-30"
+        onMouseDown={(e) => handleResizeStart(e, "SouthWest")}
+      />
+      {/* Bottom-Right Corner Visual Grip Handle */}
+      <div
+        className="resize-handle absolute bottom-0.5 right-0.5 w-6 h-6 flex items-end justify-end cursor-se-resize p-1 z-30 group"
+        title="Kéo góc này để tùy chỉnh kích cỡ cửa sổ tự do"
+        onMouseDown={(e) => handleResizeStart(e, "SouthEast")}
+      >
+        <svg
+          className="w-3.5 h-3.5 text-slate-400/60 group-hover:text-amber-300 group-hover:scale-110 transition-all drop-shadow"
+          viewBox="0 0 16 16"
+          fill="currentColor"
+        >
+          <circle cx="13" cy="13" r="1.5" />
+          <circle cx="13" cy="8.5" r="1.5" />
+          <circle cx="8.5" cy="13" r="1.5" />
+          <circle cx="13" cy="4" r="1.5" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <circle cx="4" cy="13" r="1.5" />
+        </svg>
+      </div>
+
       {/* Top Drag & Control Bar */}
-      <div data-tauri-drag-region className="flex items-center justify-between text-xs text-slate-300 pb-1 border-b border-white/10">
+      <div
+        data-tauri-drag-region
+        onMouseDown={handleStartDrag}
+        className="flex items-center justify-between text-xs text-slate-300 pb-1.5 border-b border-white/10 cursor-move"
+      >
+        {/* Drag Icon & Title */}
         <div data-tauri-drag-region className="flex items-center gap-2">
-          <Move className="w-3.5 h-3.5 text-indigo-400 opacity-80" />
-          <span className="font-bold text-slate-200 tracking-wide text-[11px] uppercase">
-            Phụ Đề Trực Tiếp (Subtitles)
-          </span>
+          <div
+            data-tauri-drag-region
+            className="flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 cursor-grab active:cursor-grabbing"
+            title="Nhấn giữ và kéo để di chuyển vị trí cửa sổ"
+          >
+            <Move className="w-3.5 h-3.5" />
+            <span className="font-bold text-slate-200 tracking-wide text-[11px] uppercase">
+              Phụ Đề Trực Tiếp
+            </span>
+          </div>
           {isCapturing && (
             <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded-full border border-emerald-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
@@ -114,6 +225,28 @@ export const SubtitleOverlay: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex items-center gap-1.5">
+          {/* Quick Size Presets: S, M, L, XL */}
+          <div
+            className="flex items-center bg-white/5 rounded border border-white/10 p-0.5"
+            title="Kích cỡ cửa sổ phụ đề"
+          >
+            <span className="text-[10px] text-slate-400 px-1 font-mono">Cỡ:</span>
+            {sizePresets.map((preset) => (
+              <button
+                key={preset.label}
+                onClick={() => handleSetPresetSize(preset.w, preset.h, preset.label)}
+                className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors ${
+                  activePreset === preset.label
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-300 hover:text-white hover:bg-white/10"
+                }`}
+                title={preset.title}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
           {/* Opacity Cycle */}
           <button
             onClick={cycleOpacity}
@@ -175,7 +308,11 @@ export const SubtitleOverlay: React.FC = () => {
       </div>
 
       {/* Bilingual Subtitle Content Display */}
-      <div className="flex-1 flex flex-col justify-center py-1.5 space-y-1 overflow-hidden">
+      <div
+        data-tauri-drag-region
+        onMouseDown={handleStartDrag}
+        className="flex-1 flex flex-col justify-center py-1.5 space-y-1 overflow-hidden cursor-move"
+      >
         {/* Previous Subtitle context if present */}
         {prevSub && (
           <p className="text-[11px] text-slate-400/80 truncate leading-tight drop-shadow">

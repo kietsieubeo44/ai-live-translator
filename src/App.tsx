@@ -82,7 +82,7 @@ export const App: React.FC = () => {
   // If this window is the overlay, render ONLY the floating overlay widget
   if (isOverlayMode) {
     return (
-      <div className="w-screen h-screen bg-transparent p-2 select-none overflow-hidden box-border">
+      <div className="w-screen h-screen bg-transparent p-0 select-none overflow-hidden box-border">
         <SubtitleOverlay />
       </div>
     );

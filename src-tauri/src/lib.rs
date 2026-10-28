@@ -44,6 +44,8 @@ pub fn run() {
             commands::overlay::hide_overlay_window,
             commands::overlay::toggle_overlay_window,
             commands::overlay::show_main_window,
+            commands::overlay::resize_overlay_window,
+            commands::overlay::start_overlay_dragging,
             commands::translation::translate_text,
             commands::translation::set_gemini_api_key,
             commands::translation::get_gemini_api_key,

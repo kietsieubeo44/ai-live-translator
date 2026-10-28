@@ -276,6 +276,26 @@ pub mod overlay {
             Err("Main window not found".to_string())
         }
     }
+
+    #[tauri::command]
+    pub fn resize_overlay_window(app: AppHandle, width: f64, height: f64) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("overlay") {
+            win.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Overlay window not found".to_string())
+        }
+    }
+
+    #[tauri::command]
+    pub fn start_overlay_dragging(app: AppHandle) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("overlay") {
+            win.start_dragging().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Overlay window not found".to_string())
+        }
+    }
 }
 
 pub mod translation {

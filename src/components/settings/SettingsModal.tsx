@@ -82,6 +82,10 @@ export const SettingsModal: React.FC = () => {
           return;
         }
         await invoke("set_gemini_api_key", { key: geminiApiKey });
+        const geminiRes = (await invoke("test_gemini_key", { key: geminiApiKey })) as string;
+        setTestResult(`✨ Gemini AI: ${geminiRes}`);
+        setTestStatus("success");
+        return;
       }
       const res: any = await invoke("translate_text", { text: testPhrase });
       setTestResult(res?.translated_vi || "Không có kết quả");

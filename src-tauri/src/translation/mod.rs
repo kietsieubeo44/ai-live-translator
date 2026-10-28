@@ -11,10 +11,37 @@ use std::time::Duration;
 static GLOBAL_GEMINI_KEY: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
 static GLOBAL_TRANSLATION_ENGINE: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
 
+fn get_gemini_key_file() -> Option<std::path::PathBuf> {
+    if let Ok(app_data) = std::env::var("LOCALAPPDATA") {
+        let dir = std::path::PathBuf::from(app_data).join("com.ailivetranslator.app");
+        let _ = std::fs::create_dir_all(&dir);
+        return Some(dir.join("gemini_api_key.txt"));
+    }
+    None
+}
+
+fn load_gemini_key_from_disk() -> String {
+    if let Some(file) = get_gemini_key_file() {
+        if let Ok(content) = std::fs::read_to_string(&file) {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+    }
+    std::env::var("GEMINI_API_KEY").unwrap_or_default()
+}
+
+fn save_gemini_key_to_disk(key: &str) {
+    if let Some(file) = get_gemini_key_file() {
+        let _ = std::fs::write(&file, key.trim());
+    }
+}
+
 pub fn get_gemini_key_holder() -> &'static Arc<Mutex<String>> {
     GLOBAL_GEMINI_KEY.get_or_init(|| {
-        let env_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
-        Arc::new(Mutex::new(env_key))
+        let initial_key = load_gemini_key_from_disk();
+        Arc::new(Mutex::new(initial_key))
     })
 }
 
@@ -23,6 +50,7 @@ pub fn set_global_gemini_key(key: &str) {
     if let Ok(mut lock) = holder.lock() {
         *lock = key.trim().to_string();
     }
+    save_gemini_key_to_disk(key);
 }
 
 pub fn get_global_gemini_key() -> String {
@@ -148,7 +176,7 @@ impl LocalDictionaryTranslationProvider {
         }
     }
 
-    /// Try translating via Gemini 1.5 Flash with detailed error reporting
+    /// Try translating via Gemini with detailed error reporting and modern model fallback
     pub fn try_gemini(&self, text: &str, api_key: &str) -> std::result::Result<String, String> {
         let key = api_key.trim();
         if key.is_empty() {
@@ -167,38 +195,54 @@ impl LocalDictionaryTranslationProvider {
             "contents": [{ "parts": [{ "text": prompt }] }],
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 200
+                "maxOutputTokens": 300
             }
         });
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}",
-            key
-        );
 
-        let resp = self.client.post(&url).json(&payload).send()
-            .map_err(|e| format!("Lỗi kết nối Gemini API: {}", e))?;
+        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        let mut last_error = String::new();
 
-        let status = resp.status();
-        let body = resp.text().unwrap_or_default();
+        for model in &model_candidates {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                model, key
+            );
 
-        if !status.is_success() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                if let Some(msg) = json["error"]["message"].as_str() {
-                    return Err(format!("Lỗi Gemini ({}): {}", status, msg));
+            match self.client.post(&url).json(&payload).send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().unwrap_or_default();
+
+                    if status.is_success() {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                let clean = txt.trim().to_string();
+                                if !clean.is_empty() {
+                                    return Ok(clean);
+                                }
+                            }
+                        }
+                    } else {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(msg) = json["error"]["message"].as_str() {
+                                last_error = format!("Lỗi Gemini {} ({}): {}", model, status, msg);
+                                continue;
+                            }
+                        }
+                        last_error = format!("Lỗi Gemini {} HTTP {}", model, status);
+                    }
+                }
+                Err(e) => {
+                    last_error = format!("Lỗi kết nối Gemini API: {}", e);
                 }
             }
-            return Err(format!("Lỗi Gemini HTTP {}", status));
         }
 
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                let clean = txt.trim().to_string();
-                if !clean.is_empty() {
-                    return Ok(clean);
-                }
-            }
+        if last_error.is_empty() {
+            Err("Gemini API không trả về nội dung hợp lệ".to_string())
+        } else {
+            Err(last_error)
         }
-        Err("Gemini API không trả về nội dung hợp lệ".to_string())
     }
 
     pub fn test_gemini(&self, api_key: &str) -> std::result::Result<String, String> {
@@ -281,7 +325,7 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
         let mode = get_translation_engine_mode();
         let gemini_key = get_global_gemini_key();
 
-        if (mode == "gemini" || !gemini_key.is_empty()) && !gemini_key.is_empty() {
+        if mode == "gemini" && !gemini_key.is_empty() {
             match self.try_gemini(trimmed, &gemini_key) {
                 Ok(gemini_res) => {
                     let final_trans = self.glossary.protect_keywords(&gemini_res);

@@ -1,18 +1,71 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { useAppStore } from "../../stores/useAppStore";
+import { listen } from "@tauri-apps/api/event";
 import { Move, Minus, Maximize2, Sparkles, X, ExternalLink, Eye } from "lucide-react";
 
+// ---------------------------------------------------------------------------
+// Payload types for Tauri events
+// ---------------------------------------------------------------------------
+
+interface BilingualSubtitlePayload {
+  id: number;
+  original_en: string;
+  translated_vi: string;
+  detected_lang?: string;
+  is_final: boolean;
+  latency_ms: number;
+}
+
+interface AnswerSuggestionPayload {
+  id: number;
+  question: { question_text: string; question_type: string; confidence: number };
+  primary_answer_en: string;
+  primary_answer_vi: string;
+  variants: Array<{ style: string; text_en: string; text_vi: string }>;
+  is_manual: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Deduplication helper
+// ---------------------------------------------------------------------------
+
+/** Strip punctuation and lowercase a string for comparison. */
+const normalise = (s: string) =>
+  s
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .trim();
+
+const MAX_SUBTITLES = 50;
+const DEDUP_WINDOW = 3;
+
+function deduplicatedAdd(
+  prev: BilingualSubtitlePayload[],
+  incoming: BilingualSubtitlePayload
+): BilingualSubtitlePayload[] {
+  const tail = prev.slice(-DEDUP_WINDOW);
+  const normIncoming = normalise(incoming.original_en);
+  const isDuplicate = tail.some((s) => normalise(s.original_en) === normIncoming);
+  if (isDuplicate) return prev;
+  const next = [...prev, incoming];
+  return next.length > MAX_SUBTITLES ? next.slice(next.length - MAX_SUBTITLES) : next;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export const SubtitleOverlay: React.FC = () => {
-  const {
-    subtitles,
-    interimTranscript,
-    isOverlayCollapsed,
-    toggleOverlayCollapse,
-    isCapturing,
-    latestSuggestion,
-  } = useAppStore();
+  // ── Local data state (replaces Zustand reads) ────────────────────────────
+  const [subtitles, setSubtitles] = useState<BilingualSubtitlePayload[]>([]);
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [latestSuggestion, setLatestSuggestion] = useState<AnswerSuggestionPayload | null>(null);
+
+  // ── UI-only state (fully local — store is isolated in this WebView) ───────
+  const [isOverlayCollapsed, setIsOverlayCollapsed] = useState(false);
+  const toggleOverlayCollapse = () => setIsOverlayCollapsed((v) => !v);
 
   // Opacity presets: 0.35, 0.60, 0.85, 0.95
   const opacities = [
@@ -41,10 +94,58 @@ export const SubtitleOverlay: React.FC = () => {
   ];
   const [activePreset, setActivePreset] = useState<string>("M");
 
+  // ── Tauri event subscriptions ────────────────────────────────────────────
+  // Keep a ref to the latest subtitles list so the event closure always sees
+  // fresh state without needing to be re-registered on every render.
+  const subtitlesRef = useRef<BilingualSubtitlePayload[]>([]);
+  subtitlesRef.current = subtitles;
+
+  useEffect(() => {
+    // --- bilingual-subtitle ---
+    const unlistenSubtitle = listen<BilingualSubtitlePayload>(
+      "bilingual-subtitle",
+      (event) => {
+        const payload = event.payload;
+        if (!payload.is_final) {
+          // Treat non-final segments as interim transcript
+          setInterimTranscript(payload.original_en);
+          return;
+        }
+        // Final segment: clear interim, deduplicate, then append
+        setInterimTranscript("");
+        setIsCapturing(true);
+        setSubtitles((prev) => deduplicatedAdd(prev, payload));
+      }
+    );
+
+    // --- audio-level ---
+    // Use audio-level bursts as a proxy for "is currently capturing"
+    const unlistenAudioLevel = listen<number>("audio-level", (event) => {
+      // Any non-zero RMS means the capture session is active
+      setIsCapturing(event.payload > 0);
+    });
+
+    // --- answer-suggestion ---
+    const unlistenSuggestion = listen<AnswerSuggestionPayload>(
+      "answer-suggestion",
+      (event) => {
+        setLatestSuggestion(event.payload);
+      }
+    );
+
+    // Cleanup: unlisten all on unmount
+    return () => {
+      unlistenSubtitle.then((fn) => fn());
+      unlistenAudioLevel.then((fn) => fn());
+      unlistenSuggestion.then((fn) => fn());
+    };
+  }, []); // run once — closures use refs/setState which are stable
+
+  // ── Derived display values ───────────────────────────────────────────────
   const currentSub = subtitles[subtitles.length - 1];
   const prevSub = subtitles.length > 1 ? subtitles[subtitles.length - 2] : null;
 
-  // Window Drag Handler
+  // ── Window Drag Handler ──────────────────────────────────────────────────
   const handleStartDrag = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -61,7 +162,7 @@ export const SubtitleOverlay: React.FC = () => {
     }
   };
 
-  // Window Resize Drag Handler (frameless edge / corner drag)
+  // ── Window Resize Drag Handler (frameless edge / corner drag) ───────────
   const handleResizeStart = (
     e: React.MouseEvent,
     direction: "East" | "South" | "SouthEast" | "SouthWest" | "West"
@@ -77,7 +178,7 @@ export const SubtitleOverlay: React.FC = () => {
     }
   };
 
-  // Apply Quick Preset Size
+  // ── Apply Quick Preset Size ───────────────────────────────────────────────
   const handleSetPresetSize = async (w: number, h: number, label: string) => {
     setActivePreset(label);
     try {
@@ -115,6 +216,7 @@ export const SubtitleOverlay: React.FC = () => {
     setFontSizeIdx((prev) => Math.max(0, prev - 1));
   };
 
+  // ── Collapsed mini-bar view ──────────────────────────────────────────────
   if (isOverlayCollapsed) {
     return (
       <div
@@ -147,6 +249,7 @@ export const SubtitleOverlay: React.FC = () => {
     );
   }
 
+  // ── Full overlay view ────────────────────────────────────────────────────
   return (
     <div
       data-tauri-drag-region

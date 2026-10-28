@@ -101,7 +101,7 @@ pub mod audio {
                                 "primary_answer_en": ans.primary_answer_en,
                                 "primary_answer_vi": ans.primary_answer_vi,
                                 "variants": ans.variants.into_iter().map(|v| serde_json::json!({
-                                    "style": format!("{:?}", v.style),
+                                    "style": v.style,
                                     "text_en": v.text_en,
                                     "text_vi": v.text_vi
                                 })).collect::<Vec<_>>(),
@@ -455,3 +455,5 @@ pub mod storage {
         mgr.clear_all().map_err(|e| e.to_string())
     }
 }
+
+

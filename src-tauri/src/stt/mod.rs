@@ -233,7 +233,6 @@ pub fn find_whisper_cli() -> Option<PathBuf> {
     let candidates = [
         PathBuf::from("models/whisper-cli/main.exe"),
         PathBuf::from("../models/whisper-cli/main.exe"),
-        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\whisper-cli\\main.exe"),
     ];
     for p in &candidates {
         if p.exists() {
@@ -286,8 +285,6 @@ pub fn find_whisper_model(model_name: &str) -> Option<PathBuf> {
         PathBuf::from(format!("models/{}", filename)),
         PathBuf::from(format!("../models/{}", filename)),
         PathBuf::from(format!("src-tauri/target/debug/models/{}", filename)),
-        PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\{}", filename)),
-        PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\src-tauri\\target\\debug\\models\\{}", filename)),
     ];
     for p in &target_candidates {
         if p.exists() {
@@ -312,8 +309,6 @@ pub fn find_whisper_model(model_name: &str) -> Option<PathBuf> {
             PathBuf::from(format!("models/{}", fallback)),
             PathBuf::from(format!("../models/{}", fallback)),
             PathBuf::from(format!("src-tauri/target/debug/models/{}", fallback)),
-            PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\{}", fallback)),
-            PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\src-tauri\\target\\debug\\models\\{}", fallback)),
         ];
         for p in &fallback_candidates {
             if p.exists() {
@@ -452,10 +447,14 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                     .arg("-f")
                     .arg(&temp_wav)
                     .arg("-t")
-                    .arg("6")
-                    .arg("-l")
-                    .arg("auto")
-                    .arg("--prompt")
+                    .arg("6");
+
+                let model_str = model_path.to_string_lossy().to_lowercase();
+                if model_str.contains(".en.") || model_str.contains(".en") {
+                    cmd.arg("-l").arg("en");
+                }
+
+                cmd.arg("--prompt")
                     .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
 
                 #[cfg(windows)]

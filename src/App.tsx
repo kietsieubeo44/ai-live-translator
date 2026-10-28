@@ -65,6 +65,21 @@ export const App: React.FC = () => {
         console.warn("[Tauri Init] list_audio_devices failed:", e);
       }
 
+      // Sync Gemini API Key and Translation Engine between Rust backend and frontend
+      try {
+        const rustKey = (await invoke("get_gemini_api_key")) as string;
+        const localKey = localStorage.getItem("gemini_api_key") || "";
+        if (rustKey && !localKey) {
+          localStorage.setItem("gemini_api_key", rustKey);
+        } else if (localKey && (!rustKey || rustKey !== localKey)) {
+          await invoke("set_gemini_api_key", { key: localKey });
+        }
+        const engine = localStorage.getItem("translation_engine") || "gemini";
+        await invoke("set_translation_engine", { engine });
+      } catch (e) {
+        console.warn("[Tauri Init] Failed to sync Gemini key/engine:", e);
+      }
+
       // Auto-start capture ONLY on main window, never on overlay
       if (!isOverlayInitial) {
         try {

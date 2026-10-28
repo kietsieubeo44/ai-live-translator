@@ -403,61 +403,76 @@ impl SmartAnswerEngine {
             }
         });
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}",
-            key
-        );
+        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        let mut last_error = String::new();
 
-        let resp = client.post(&url).json(&payload).send()
-            .map_err(|e| format!("Lỗi kết nối Gemini: {}", e))?;
+        for model in &model_candidates {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                model, key
+            );
 
-        if !resp.status().is_success() {
-            return Err(format!("Gemini HTTP {}", resp.status()));
-        }
+            match client.post(&url).json(&payload).send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().unwrap_or_default();
 
-        let body = resp.text().unwrap_or_default();
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-            if let Some(raw_text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                let clean = raw_text.trim();
-                let json_str = if clean.starts_with("```json") {
-                    clean.trim_start_matches("```json").trim_end_matches("```").trim()
-                } else if clean.starts_with("```") {
-                    clean.trim_start_matches("```").trim_end_matches("```").trim()
-                } else {
-                    clean
-                };
+                    if status.is_success() {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(raw_text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                let clean = raw_text.trim();
+                                let json_str = if clean.starts_with("```json") {
+                                    clean.trim_start_matches("```json").trim_end_matches("```").trim()
+                                } else if clean.starts_with("```") {
+                                    clean.trim_start_matches("```").trim_end_matches("```").trim()
+                                } else {
+                                    clean
+                                };
 
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
-                    let p_en = parsed["primary_en"].as_str().unwrap_or("").to_string();
-                    let p_vi = parsed["primary_vi"].as_str().unwrap_or("").to_string();
-                    let mut variants = Vec::new();
+                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                    let p_en = parsed["primary_en"].as_str().unwrap_or("").to_string();
+                                    let p_vi = parsed["primary_vi"].as_str().unwrap_or("").to_string();
+                                    let mut variants = Vec::new();
 
-                    if let Some(arr) = parsed["variants"].as_array() {
-                        for item in arr {
-                            variants.push(AnswerVariant {
-                                style: item["style"].as_str().unwrap_or("Professional").to_string(),
-                                text_en: item["text_en"].as_str().unwrap_or("").to_string(),
-                                text_vi: item["text_vi"].as_str().unwrap_or("").to_string(),
-                            });
+                                    if let Some(arr) = parsed["variants"].as_array() {
+                                        for item in arr {
+                                            variants.push(AnswerVariant {
+                                                style: item["style"].as_str().unwrap_or("Professional").to_string(),
+                                                text_en: item["text_en"].as_str().unwrap_or("").to_string(),
+                                                text_vi: item["text_vi"].as_str().unwrap_or("").to_string(),
+                                            });
+                                        }
+                                    }
+
+                                    if !p_en.is_empty() && !variants.is_empty() {
+                                        return Ok(AnswerSuggestion {
+                                            id: rand_or_timestamp(),
+                                            question: question.clone(),
+                                            primary_answer_en: p_en,
+                                            primary_answer_vi: p_vi,
+                                            variants,
+                                            created_at_ms: rand_or_timestamp(),
+                                            is_manual: false,
+                                        });
+                                    }
+                                }
+                            }
                         }
+                    } else {
+                        last_error = format!("Gemini {} HTTP {}", model, status);
                     }
-
-                    if !p_en.is_empty() && !variants.is_empty() {
-                        return Ok(AnswerSuggestion {
-                            id: rand_or_timestamp(),
-                            question: question.clone(),
-                            primary_answer_en: p_en,
-                            primary_answer_vi: p_vi,
-                            variants,
-                            created_at_ms: rand_or_timestamp(),
-                            is_manual: false,
-                        });
-                    }
+                }
+                Err(e) => {
+                    last_error = format!("Lỗi kết nối Gemini: {}", e);
                 }
             }
         }
 
-        Err("Không phân tích được phản hồi từ Gemini".to_string())
+        if last_error.is_empty() {
+            Err("Không phân tích được phản hồi từ Gemini".to_string())
+        } else {
+            Err(last_error)
+        }
     }
 
     /// Generate answers: utilizes User's Knowledge Base + Gemini AI if available, else contextual templates

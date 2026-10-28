@@ -82,7 +82,7 @@ export const SettingsModal: React.FC = () => {
           return;
         }
         await invoke("set_gemini_api_key", { key: geminiApiKey });
-        const geminiRes = (await invoke("test_gemini_key", { key: geminiApiKey })) as string;
+        const geminiRes = (await invoke("test_gemini_key", { key: geminiApiKey, text: testPhrase })) as string;
         setTestResult(`✨ Gemini AI: ${geminiRes}`);
         setTestStatus("success");
         return;

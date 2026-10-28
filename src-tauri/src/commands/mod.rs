@@ -44,14 +44,12 @@ pub mod audio {
         let (speech_tx, speech_rx) = crossbeam_channel::bounded::<Vec<f32>>(32);
         let app_worker = app.clone();
 
-        // Worker thread: Direct zero-latency meeting transcription & translation
+        // Worker thread: Direct real-time meeting transcription & dual-tier translation
         std::thread::spawn(move || {
             let initial_model = crate::stt::get_active_model_name();
             let mut whisper = LocalWhisperEngine::new(&initial_model);
             let translator = std::sync::Arc::new(LocalDictionaryTranslationProvider::new());
-            let answer_engine = std::sync::Arc::new(SmartAnswerEngine::new());
             let mut sub_counter: u64 = 0;
-            let mut ans_counter: u64 = 0;
 
             while let Ok(audio_chunk) = speech_rx.recv() {
                 if audio_chunk.is_empty() {
@@ -65,58 +63,48 @@ pub mod audio {
                     for seg in segments {
                         sub_counter += 1;
                         let sub_id = sub_counter;
+                        let mode = crate::translation::get_translation_engine_mode();
+                        let gemini_key = crate::translation::get_global_gemini_key();
 
-                        // ── DIRECT ULTRA-FAST REAL-TIME TRANSLATION (<25ms) ───────────
-                        // Chrome-Dict / Glossary engine: Instant translation with zero network blocking
-                        let vi_text = translator.translate_fast(&seg.text, "auto", "vi");
+                        // ── TIER 1: INSTANT DIRECT REAL-TIME TRANSLATION (<35ms) ──────
+                        // Chrome-Dict engine: Immediate zero-latency emission to UI
+                        let fast_vi = translator.translate_fast(&seg.text, "auto", "vi");
 
                         let sub_payload = serde_json::json!({
                             "id": sub_id,
                             "original_en": seg.text,
-                            "translated_vi": vi_text,
+                            "translated_vi": fast_vi,
                             "detected_lang": seg.language,
                             "is_final": true,
                             "latency_ms": seg.timestamp_ms
                         });
                         let _ = app_worker.emit("bilingual-subtitle", &sub_payload);
 
-                        // ── ASYNC QUESTION DETECTION (OFF-LOADED TO BACKGROUND) ─────────
-                        // Never slows down or blocks the live meeting translation loop
-                        let text_clone = seg.text.clone();
-                        let app_ans = app_worker.clone();
-                        let engine_ans = answer_engine.clone();
-                        ans_counter += 1;
-                        let curr_ans_id = ans_counter;
+                        // ── TIER 2: ASYNC GEMINI AI REFINEMENT (PRO DIRECT TRANSLATION) ──
+                        // If user enabled Gemini mode, asynchronously polish in the background
+                        // so the audio capture/transcription loop NEVER lags or queues up!
+                        if mode == "gemini" && !gemini_key.is_empty() {
+                            let app_refine = app_worker.clone();
+                            let trans_refine = translator.clone();
+                            let text_refine = seg.text.clone();
+                            let lang_refine = seg.language.clone();
+                            let lat_refine = seg.timestamp_ms;
+                            let key = gemini_key.clone();
 
-                        std::thread::spawn(move || {
-                            if let Some(question) = engine_ans.detector().detect_question(&text_clone, "") {
-                                let ans = engine_ans.generate_answer(&question, false);
-                                let ans_payload = serde_json::json!({
-                                    "id": curr_ans_id,
-                                    "question": {
-                                        "id": question.id,
-                                        "question_text": question.question_text,
-                                        "question_type": format!("{:?}", question.question_type),
-                                        "confidence": question.confidence,
-                                        "needs_response": question.needs_response,
-                                        "context_snippet": question.context_snippet
-                                    },
-                                    "primary_answer_en": ans.primary_answer_en,
-                                    "primary_answer_vi": ans.primary_answer_vi,
-                                    "variants": ans.variants.into_iter().map(|v| serde_json::json!({
-                                        "style": v.style,
-                                        "text_en": v.text_en,
-                                        "text_vi": v.text_vi
-                                    })).collect::<Vec<_>>(),
-                                    "created_at_ms": std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_millis() as u64,
-                                    "is_manual": false
-                                });
-                                let _ = app_ans.emit("answer-suggestion", &ans_payload);
-                            }
-                        });
+                            std::thread::spawn(move || {
+                                if let Ok(gemini_vi) = trans_refine.try_gemini(&text_refine, &key) {
+                                    let updated_payload = serde_json::json!({
+                                        "id": sub_id,
+                                        "original_en": text_refine,
+                                        "translated_vi": gemini_vi,
+                                        "detected_lang": lang_refine,
+                                        "is_final": true,
+                                        "latency_ms": lat_refine
+                                    });
+                                    let _ = app_refine.emit("bilingual-subtitle", &updated_payload);
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -329,9 +317,13 @@ pub mod translation {
     }
 
     #[tauri::command]
-    pub fn test_gemini_key(key: String) -> Result<String, String> {
+    pub fn test_gemini_key(key: String, text: Option<String>) -> Result<String, String> {
         let provider = LocalDictionaryTranslationProvider::new();
-        provider.test_gemini(&key)
+        let phrase = match text {
+            Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+            _ => "Hello everyone, we are testing the Gemini AI real-time translation integration.".to_string(),
+        };
+        provider.try_gemini(&phrase, &key)
     }
 
     #[tauri::command]

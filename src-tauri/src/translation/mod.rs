@@ -164,7 +164,7 @@ pub struct LocalDictionaryTranslationProvider {
 impl LocalDictionaryTranslationProvider {
     pub fn new() -> Self {
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(3500))
+            .timeout(Duration::from_millis(10000))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .build()
             .unwrap_or_default();
@@ -199,7 +199,8 @@ impl LocalDictionaryTranslationProvider {
             }
         });
 
-        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        // gemini-3.5-flash-lite is optimized for low-latency translation (<1s), gemini-3.5-flash is fallback
+        let model_candidates = ["gemini-3.5-flash-lite", "gemini-3.5-flash"];
         let mut last_error = String::new();
 
         for model in &model_candidates {
@@ -215,13 +216,25 @@ impl LocalDictionaryTranslationProvider {
 
                     if status.is_success() {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                                let clean = txt.trim().to_string();
-                                if !clean.is_empty() {
-                                    return Ok(clean);
+                            if let Some(candidates) = json["candidates"].as_array() {
+                                if let Some(cand) = candidates.first() {
+                                    if let Some(parts) = cand["content"]["parts"].as_array() {
+                                        for part in parts.iter().rev() {
+                                            if part["thought"].as_bool().unwrap_or(false) {
+                                                continue;
+                                            }
+                                            if let Some(txt) = part["text"].as_str() {
+                                                let clean = txt.trim().to_string();
+                                                if !clean.is_empty() {
+                                                    return Ok(clean);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                        last_error = format!("Gemini {} không trả về văn bản dịch hợp lệ", model);
                     } else {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
                             if let Some(msg) = json["error"]["message"].as_str() {
@@ -233,7 +246,7 @@ impl LocalDictionaryTranslationProvider {
                     }
                 }
                 Err(e) => {
-                    last_error = format!("Lỗi kết nối Gemini API: {}", e);
+                    last_error = format!("Lỗi kết nối Gemini API ({}): {}", model, e);
                 }
             }
         }
@@ -253,7 +266,7 @@ impl LocalDictionaryTranslationProvider {
         self.glossary.protect_keywords(text)
     }
 
-    /// Instant ultra-fast translation (< 35ms) using dictionary, technical glossary and Google API
+    /// Instant ultra-fast direct translation (< 35ms) using Google Dict Chrome API
     pub fn translate_fast(&self, text: &str, _from: &str, to: &str) -> String {
         let trimmed = text.trim();
         if trimmed.is_empty() {
@@ -267,7 +280,7 @@ impl LocalDictionaryTranslationProvider {
             }
         }
 
-        // 2. Direct technical meeting idioms lookup
+        // 2. Direct common meeting phrase check
         if let Some(vi) = self.glossary.lookup_phrase(trimmed) {
             let result = format!("{}{}", vi, if trimmed.ends_with('?') && !vi.ends_with('?') { "?" } else { "" });
             if let Ok(mut cache) = self.cache.lock() {
@@ -279,45 +292,13 @@ impl LocalDictionaryTranslationProvider {
         // 3. Ultra-fast Google Translate Chrome-Dict endpoint (~30ms, auto-detects language)
         let target_lang = if to.is_empty() { "vi" } else { to };
         if let Some(trans) = self.try_google_dict_chrome(trimmed, target_lang) {
-            let final_trans = self.glossary.protect_keywords(&trans);
             if let Ok(mut cache) = self.cache.lock() {
-                cache.insert(trimmed.to_string(), final_trans.clone());
+                cache.insert(trimmed.to_string(), trans.clone());
             }
-            return final_trans;
+            return trans;
         }
 
-        // 4. Fallback Google Translate GTX endpoint
-        if let Some(trans) = self.try_google_gtx(trimmed, target_lang) {
-            let final_trans = self.glossary.protect_keywords(&trans);
-            if let Ok(mut cache) = self.cache.lock() {
-                cache.insert(trimmed.to_string(), final_trans.clone());
-            }
-            return final_trans;
-        }
-
-        // 5. Intelligent contextual rule-based fallback
-        let lower = trimmed.to_lowercase();
-        let translated = if lower.starts_with("can you explain") || lower.starts_with("could you explain") {
-            format!("Bạn có thể giải thích {} không?", &trimmed[15..].trim_end_matches('?'))
-        } else if lower.starts_with("can you") || lower.starts_with("could you") {
-            format!("Bạn có thể {} không?", &trimmed[7..].trim_end_matches('?'))
-        } else if lower.starts_with("what is") || lower.starts_with("what are") {
-            format!("{} là gì?", &trimmed[7..].trim_end_matches('?'))
-        } else if lower.starts_with("i believe") || lower.starts_with("i think") {
-            format!("Tôi tin rằng {}", &trimmed[9..].trim())
-        } else if lower.starts_with("how do we") || lower.starts_with("how can we") {
-            format!("Làm thế nào để chúng ta {}?", &trimmed[9..].trim_end_matches('?'))
-        } else if lower.starts_with("why did you") {
-            format!("Tại sao bạn lại {}?", &trimmed[11..].trim_end_matches('?'))
-        } else {
-            self.glossary.protect_keywords(trimmed)
-        };
-
-        let final_trans = self.glossary.protect_keywords(&translated);
-        if let Ok(mut cache) = self.cache.lock() {
-            cache.insert(trimmed.to_string(), final_trans.clone());
-        }
-        final_trans
+        trimmed.to_string()
     }
 
     /// Intelligent AI Meeting Minutes & Key Takeaways Generator (inspired by Felo AI)
@@ -351,7 +332,7 @@ impl LocalDictionaryTranslationProvider {
                 "maxOutputTokens": 1800
             }
         });
-        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        let model_candidates = ["gemini-3.5-flash-lite", "gemini-3.5-flash"];
         let mut last_error = String::new();
 
         for model in &model_candidates {
@@ -367,13 +348,25 @@ impl LocalDictionaryTranslationProvider {
 
                     if status.is_success() {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                                let clean = txt.trim().to_string();
-                                if !clean.is_empty() {
-                                    return Ok(clean);
+                            if let Some(candidates) = json["candidates"].as_array() {
+                                if let Some(cand) = candidates.first() {
+                                    if let Some(parts) = cand["content"]["parts"].as_array() {
+                                        for part in parts.iter().rev() {
+                                            if part["thought"].as_bool().unwrap_or(false) {
+                                                continue;
+                                            }
+                                            if let Some(txt) = part["text"].as_str() {
+                                                let clean = txt.trim().to_string();
+                                                if !clean.is_empty() {
+                                                    return Ok(clean);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
+                        last_error = format!("Gemini {} không trả về nội dung tóm tắt hợp lệ", model);
                     } else {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
                             if let Some(msg) = json["error"]["message"].as_str() {
@@ -385,7 +378,7 @@ impl LocalDictionaryTranslationProvider {
                     }
                 }
                 Err(e) => {
-                    last_error = format!("Lỗi kết nối Gemini API: {}", e);
+                    last_error = format!("Lỗi kết nối Gemini API ({}): {}", model, e);
                 }
             }
         }
@@ -412,10 +405,19 @@ impl LocalDictionaryTranslationProvider {
 
         if let Ok(json) = resp.json::<serde_json::Value>() {
             if let Some(arr) = json.as_array() {
-                if let Some(translated) = arr.get(0).and_then(|v| v.as_str()) {
-                    let clean = translated.trim();
-                    if !clean.is_empty() {
-                        return Some(clean.to_string());
+                if let Some(first) = arr.get(0) {
+                    if let Some(s) = first.as_str() {
+                        let clean = s.trim();
+                        if !clean.is_empty() {
+                            return Some(clean.to_string());
+                        }
+                    } else if let Some(inner_arr) = first.as_array() {
+                        if let Some(s) = inner_arr.get(0).and_then(|v| v.as_str()) {
+                            let clean = s.trim();
+                            if !clean.is_empty() {
+                                return Some(clean.to_string());
+                            }
+                        }
                     }
                 }
             }

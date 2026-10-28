@@ -360,7 +360,7 @@ impl SmartAnswerEngine {
         }
 
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(4500))
+            .timeout(Duration::from_millis(10000))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -403,7 +403,7 @@ impl SmartAnswerEngine {
             }
         });
 
-        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        let model_candidates = ["gemini-3.5-flash-lite", "gemini-3.5-flash"];
         let mut last_error = String::new();
 
         for model in &model_candidates {
@@ -419,14 +419,31 @@ impl SmartAnswerEngine {
 
                     if status.is_success() {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
-                            if let Some(raw_text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                                let clean = raw_text.trim();
+                            let mut text_found = None;
+                            if let Some(cand) = json["candidates"].as_array().and_then(|c| c.first()) {
+                                if let Some(parts) = cand["content"]["parts"].as_array() {
+                                    for part in parts.iter().rev() {
+                                        if part["thought"].as_bool().unwrap_or(false) {
+                                            continue;
+                                        }
+                                        if let Some(txt) = part["text"].as_str() {
+                                            let clean = txt.trim();
+                                            if !clean.is_empty() {
+                                                text_found = Some(clean.to_string());
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(clean) = text_found {
                                 let json_str = if clean.starts_with("```json") {
                                     clean.trim_start_matches("```json").trim_end_matches("```").trim()
                                 } else if clean.starts_with("```") {
                                     clean.trim_start_matches("```").trim_end_matches("```").trim()
                                 } else {
-                                    clean
+                                    &clean
                                 };
 
                                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str) {

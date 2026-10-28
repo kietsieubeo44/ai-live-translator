@@ -82,7 +82,6 @@ export const Dashboard: React.FC = () => {
         console.log("[Dashboard] Starting capture for device:", selectedDeviceId);
         await invoke("start_capture", {
           deviceId: selectedDeviceId,
-          device_id: selectedDeviceId,
         });
         setIsCapturing(true);
       }

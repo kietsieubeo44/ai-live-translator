@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
-import { Sparkles, Copy, Check, RefreshCw, Send, ShieldAlert, BookOpen } from "lucide-react";
+import { Sparkles, Copy, Check, RefreshCw, Send, ShieldAlert, BookOpen, X, HelpCircle } from "lucide-react";
 
 export const AnswerPanel: React.FC = () => {
   const {
@@ -13,9 +13,10 @@ export const AnswerPanel: React.FC = () => {
     setActiveTab,
   } = useAppStore();
 
-  const [copied, setCopied] = useState(false);
+  const [copiedStyle, setCopiedStyle] = useState<string | null>(null);
   const [manualQuery, setManualQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeDocs = knowledgeDocs.filter((d) => d.is_active);
 
@@ -23,10 +24,10 @@ export const AnswerPanel: React.FC = () => {
     (v) => v.style.toLowerCase() === selectedVariantStyle.toLowerCase()
   ) || latestSuggestion?.variants[0];
 
-  const handleCopy = (text: string) => {
+  const handleCopy = (text: string, styleKey: string) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedStyle(styleKey);
+    setTimeout(() => setCopiedStyle(null), 2000);
   };
 
   const handleManualRequest = async (e: React.FormEvent) => {
@@ -34,12 +35,29 @@ export const AnswerPanel: React.FC = () => {
     if (!manualQuery.trim()) return;
 
     setIsGenerating(true);
+    setErrorMessage(null);
     try {
       const suggestion = await invoke("generate_answer_manual", { context: manualQuery });
       setLatestSuggestion(suggestion as any);
       setManualQuery("");
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setErrorMessage(`Lỗi tạo câu trả lời: ${err?.message || err}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleLoadSample = async () => {
+    setIsGenerating(true);
+    setErrorMessage(null);
+    try {
+      const sampleQuestion = "Can you describe a challenging project you worked on and how you resolved the issues?";
+      const suggestion = await invoke("generate_answer_manual", { context: sampleQuestion });
+      setLatestSuggestion(suggestion as any);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(`Lỗi: ${err?.message || err}`);
     } finally {
       setIsGenerating(false);
     }
@@ -90,6 +108,14 @@ export const AnswerPanel: React.FC = () => {
         </button>
       </div>
 
+      {/* Error Feedback Banner */}
+      {errorMessage && (
+        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
+          <span>{errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="text-slate-400 hover:text-white">✕</button>
+        </div>
+      )}
+
       {/* Manual Suggestion Trigger Bar */}
       <form onSubmit={handleManualRequest} className="glass-panel p-3 rounded-2xl flex items-center gap-3">
         <input
@@ -118,9 +144,18 @@ export const AnswerPanel: React.FC = () => {
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
                 Target Question • {latestSuggestion.question.question_type}
               </span>
-              <span className="text-xs text-slate-500 font-mono">
-                {latestSuggestion.is_manual ? "Manual Trigger" : "Auto Detected"}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500 font-mono">
+                  {latestSuggestion.is_manual ? "Manual Trigger" : "Auto Detected"}
+                </span>
+                <button
+                  onClick={() => setLatestSuggestion(null)}
+                  className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-rose-400 transition-colors"
+                  title="Đóng / Xóa gợi ý này"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <p className="text-base font-semibold text-white">
               "{latestSuggestion.question.question_text}"
@@ -153,11 +188,11 @@ export const AnswerPanel: React.FC = () => {
                   {activeVariant.style} Response (English)
                 </span>
                 <button
-                  onClick={() => handleCopy(activeVariant.text_en)}
+                  onClick={() => handleCopy(activeVariant.text_en, activeVariant.style)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition-all"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  {copied ? "Copied to Clipboard!" : "Copy English"}
+                  {copiedStyle === activeVariant.style ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedStyle === activeVariant.style ? "Copied to Clipboard!" : "Copy English"}
                 </button>
               </div>
 
@@ -190,12 +225,22 @@ export const AnswerPanel: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-sm py-16">
-          <Sparkles className="w-12 h-12 mb-3 opacity-30 text-amber-400" />
-          <p className="text-base font-medium text-slate-400">No question detected yet</p>
-          <p className="text-xs text-slate-600 max-w-sm text-center mt-1">
-            When someone asks a question in your audio stream, intelligent response suggestions will appear here. Or type one above!
-          </p>
+        <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-sm py-16 space-y-4">
+          <Sparkles className="w-12 h-12 opacity-30 text-amber-400" />
+          <div className="text-center">
+            <p className="text-base font-medium text-slate-300">Chưa phát hiện câu hỏi nào trong luồng âm thanh</p>
+            <p className="text-xs text-slate-500 max-w-sm mt-1">
+              Khi ai đó đặt câu hỏi trong buổi họp hoặc phỏng vấn, các gợi ý câu trả lời thông minh sẽ lập tức xuất hiện ở đây.
+            </p>
+          </div>
+          <button
+            onClick={handleLoadSample}
+            disabled={isGenerating}
+            className="px-4 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition-all flex items-center gap-2"
+          >
+            <HelpCircle className="w-4 h-4 text-indigo-400" />
+            <span>Nạp Câu Hỏi Thử Nghiệm (Sample Question)</span>
+          </button>
         </div>
       )}
     </div>

@@ -281,7 +281,7 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
         let mode = get_translation_engine_mode();
         let gemini_key = get_global_gemini_key();
 
-        if (mode == "gemini" || !gemini_key.is_empty()) && !gemini_key.is_empty() {
+        if mode == "gemini" && !gemini_key.is_empty() {
             match self.try_gemini(trimmed, &gemini_key) {
                 Ok(gemini_res) => {
                     let final_trans = self.glossary.protect_keywords(&gemini_res);

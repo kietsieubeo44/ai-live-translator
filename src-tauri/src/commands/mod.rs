@@ -46,7 +46,8 @@ pub mod audio {
 
         // Worker thread: Executes Whisper STT on GPU, Dictionary Translation, and Smart Answer Engine
         std::thread::spawn(move || {
-            let mut whisper = LocalWhisperEngine::new("base.en");
+            let initial_model = crate::stt::get_active_model_name();
+            let mut whisper = LocalWhisperEngine::new(&initial_model);
             let translator = LocalDictionaryTranslationProvider::new();
             let answer_engine = SmartAnswerEngine::new();
             let mut conversation_context = String::new();
@@ -57,6 +58,10 @@ pub mod audio {
                 if audio_chunk.is_empty() {
                     continue;
                 }
+                // Check if user changed the model dynamically
+                let current_model = crate::stt::get_active_model_name();
+                whisper.reload_model(&current_model);
+
                 if let Ok(segments) = whisper.transcribe(&audio_chunk) {
                     for seg in segments {
                         sub_counter += 1;
@@ -203,9 +208,73 @@ pub mod stt {
     }
 
     #[tauri::command]
+    pub fn get_active_model() -> String {
+        crate::stt::get_active_model_name()
+    }
+
+    #[tauri::command]
+    pub fn set_active_model(model_name: String) -> Result<String, String> {
+        crate::stt::set_active_model_name(&model_name);
+        Ok(crate::stt::get_active_model_name())
+    }
+
+    #[tauri::command]
     pub fn load_model(path: String) -> Result<bool, String> {
         let path_buf = PathBuf::from(path);
         Ok(path_buf.exists())
+    }
+}
+
+pub mod overlay {
+    use tauri::{AppHandle, Manager};
+
+    #[tauri::command]
+    pub fn show_overlay_window(app: AppHandle) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("overlay") {
+            win.show().map_err(|e| e.to_string())?;
+            win.set_focus().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Overlay window not found".to_string())
+        }
+    }
+
+    #[tauri::command]
+    pub fn hide_overlay_window(app: AppHandle) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("overlay") {
+            win.hide().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Overlay window not found".to_string())
+        }
+    }
+
+    #[tauri::command]
+    pub fn toggle_overlay_window(app: AppHandle) -> Result<bool, String> {
+        if let Some(win) = app.get_webview_window("overlay") {
+            let is_visible = win.is_visible().map_err(|e| e.to_string())?;
+            if is_visible {
+                win.hide().map_err(|e| e.to_string())?;
+                Ok(false)
+            } else {
+                win.show().map_err(|e| e.to_string())?;
+                win.set_focus().map_err(|e| e.to_string())?;
+                Ok(true)
+            }
+        } else {
+            Err("Overlay window not found".to_string())
+        }
+    }
+
+    #[tauri::command]
+    pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+        if let Some(win) = app.get_webview_window("main") {
+            win.show().map_err(|e| e.to_string())?;
+            win.set_focus().map_err(|e| e.to_string())?;
+            Ok(())
+        } else {
+            Err("Main window not found".to_string())
+        }
     }
 }
 

@@ -25,7 +25,21 @@ export const SettingsModal: React.FC = () => {
     if (saved) {
       invoke("set_gemini_api_key", { key: saved }).catch(console.error);
     }
+    invoke("get_active_model")
+      .then((m: any) => {
+        if (m) setSelectedModel(m);
+      })
+      .catch(console.warn);
   }, []);
+
+  const handleModelSelect = async (modelId: string) => {
+    try {
+      setSelectedModel(modelId);
+      await invoke("set_active_model", { modelName: modelId });
+    } catch (e) {
+      console.error("Failed to set active model:", e);
+    }
+  };
 
   const handleSaveGeminiKey = async () => {
     try {
@@ -188,17 +202,19 @@ export const SettingsModal: React.FC = () => {
             ].map((m) => (
               <div
                 key={m.id}
-                onClick={() => setSelectedModel(m.id)}
+                onClick={() => handleModelSelect(m.id)}
                 className={`p-4 rounded-xl border cursor-pointer transition-all space-y-1.5 ${
                   selectedModel === m.id
-                    ? "bg-indigo-600/20 border-indigo-500 text-white"
+                    ? "bg-indigo-600/25 border-indigo-400 text-white shadow-lg shadow-indigo-600/20"
                     : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-xs text-slate-200">{m.title}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-indigo-400 font-mono">
-                    {m.badge}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                    selectedModel === m.id ? "bg-indigo-500 text-white font-bold" : "bg-slate-800 text-indigo-400"
+                  }`}>
+                    {selectedModel === m.id ? "✓ Đang kích hoạt" : m.badge}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-snug">{m.desc}</p>

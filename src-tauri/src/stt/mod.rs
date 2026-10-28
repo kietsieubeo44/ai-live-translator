@@ -253,47 +253,71 @@ pub fn find_whisper_cli() -> Option<PathBuf> {
     None
 }
 
-pub fn find_whisper_model() -> Option<PathBuf> {
-    // 1. Prefer high-accuracy base.en model (much higher accuracy for Indian English and technical meetings)
-    let base_candidates = [
-        PathBuf::from("models/ggml-base.en.bin"),
-        PathBuf::from("../models/ggml-base.en.bin"),
-        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\ggml-base.en.bin"),
+static CURRENT_MODEL: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<String>>> = std::sync::OnceLock::new();
+
+pub fn get_current_model_holder() -> &'static std::sync::Arc<std::sync::Mutex<String>> {
+    CURRENT_MODEL.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new("base.en".to_string())))
+}
+
+pub fn set_active_model_name(name: &str) {
+    if let Ok(mut lock) = get_current_model_holder().lock() {
+        *lock = name.trim().to_string();
+    }
+}
+
+pub fn get_active_model_name() -> String {
+    get_current_model_holder().lock().map(|l| l.clone()).unwrap_or_else(|_| "base.en".to_string())
+}
+
+pub fn find_whisper_model(model_name: &str) -> Option<PathBuf> {
+    let name = if model_name.is_empty() {
+        get_active_model_name()
+    } else {
+        model_name.to_string()
+    };
+
+    let filename = if name.starts_with("ggml-") {
+        name.clone()
+    } else {
+        format!("ggml-{}.bin", name)
+    };
+
+    let target_candidates = [
+        PathBuf::from(format!("models/{}", filename)),
+        PathBuf::from(format!("../models/{}", filename)),
+        PathBuf::from(format!("src-tauri/target/debug/models/{}", filename)),
+        PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\{}", filename)),
+        PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\src-tauri\\target\\debug\\models\\{}", filename)),
     ];
-    for p in &base_candidates {
+    for p in &target_candidates {
         if p.exists() {
             return Some(p.clone());
         }
     }
+
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            let p1 = parent.join("models").join("ggml-base.en.bin");
+            let p1 = parent.join("models").join(&filename);
             if p1.exists() { return Some(p1); }
             if let Some(grandparent) = parent.parent() {
-                let p2 = grandparent.join("models").join("ggml-base.en.bin");
+                let p2 = grandparent.join("models").join(&filename);
                 if p2.exists() { return Some(p2); }
             }
         }
     }
 
-    // 2. Fall back to tiny.en model
-    let tiny_candidates = [
-        PathBuf::from("models/ggml-tiny.en.bin"),
-        PathBuf::from("../models/ggml-tiny.en.bin"),
-        PathBuf::from("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\ggml-tiny.en.bin"),
-    ];
-    for p in &tiny_candidates {
-        if p.exists() {
-            return Some(p.clone());
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let p1 = parent.join("models").join("ggml-tiny.en.bin");
-            if p1.exists() { return Some(p1); }
-            if let Some(grandparent) = parent.parent() {
-                let p2 = grandparent.join("models").join("ggml-tiny.en.bin");
-                if p2.exists() { return Some(p2); }
+    // Fallback: If requested model is not found, try base.en then tiny.en
+    for fallback in &["ggml-base.en.bin", "ggml-tiny.en.bin"] {
+        let fallback_candidates = [
+            PathBuf::from(format!("models/{}", fallback)),
+            PathBuf::from(format!("../models/{}", fallback)),
+            PathBuf::from(format!("src-tauri/target/debug/models/{}", fallback)),
+            PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\models\\{}", fallback)),
+            PathBuf::from(format!("C:\\Users\\kai.ngo\\Downloads\\Kai_ngo\\ai-live-translator\\src-tauri\\target\\debug\\models\\{}", fallback)),
+        ];
+        for p in &fallback_candidates {
+            if p.exists() {
+                return Some(p.clone());
             }
         }
     }
@@ -341,17 +365,27 @@ pub struct LocalWhisperEngine {
 
 impl LocalWhisperEngine {
     pub fn new(model_name: &str) -> Self {
-        let model = find_whisper_model();
+        let name = if model_name.is_empty() { get_active_model_name() } else { model_name.to_string() };
+        let model = find_whisper_model(&name);
         let cli = find_whisper_cli();
         let loaded = model.is_some() && cli.is_some();
         LocalWhisperEngine {
-            model_name: model_name.to_string(),
+            model_name: name,
             model_path: model,
             cli_path: cli,
             is_loaded: loaded,
             normalizer: AudioTextNormalizer::new(),
             deduplicator: TranscriptDeduplicator::new(),
             segment_counter: 0,
+        }
+    }
+
+    pub fn reload_model(&mut self, model_name: &str) {
+        if !model_name.is_empty() && self.model_name != model_name {
+            info!("Dynamic STT model switch: {} -> {}", self.model_name, model_name);
+            self.model_name = model_name.to_string();
+            self.model_path = find_whisper_model(model_name);
+            self.is_loaded = self.model_path.is_some() && self.cli_path.is_some();
         }
     }
 

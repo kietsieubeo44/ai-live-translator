@@ -17,7 +17,8 @@ import {
 
 export const App: React.FC = () => {
   const { activeTab, setActiveTab, setDevices, setIsCapturing, setAudioLevel, addSubtitle, setLatestSuggestion } = useAppStore();
-  const [isOverlayMode, setIsOverlayMode] = useState(false);
+  const isOverlayInitial = typeof window !== "undefined" && (window.location.hash === "#overlay" || new URLSearchParams(window.location.search).get("view") === "overlay");
+  const [isOverlayMode, setIsOverlayMode] = useState(isOverlayInitial);
 
   useEffect(() => {
     // Check if opened as floating overlay window
@@ -62,14 +63,16 @@ export const App: React.FC = () => {
         console.warn("[Tauri Init] list_audio_devices failed:", e);
       }
 
-      // Auto-start capture on default device
-      try {
-        console.log("[Tauri Init] Auto-starting capture on default device...");
-        await invoke("start_capture", { deviceId: "default", device_id: "default" });
-        setIsCapturing(true);
-        console.log("[Tauri Init] Capture auto-started successfully!");
-      } catch (e) {
-        console.warn("[Tauri Init] Auto-start capture failed:", e);
+      // Auto-start capture ONLY on main window, never on overlay
+      if (!isOverlayInitial) {
+        try {
+          console.log("[Tauri Init] Auto-starting capture on default device...");
+          await invoke("start_capture", { deviceId: "default", device_id: "default" });
+          setIsCapturing(true);
+          console.log("[Tauri Init] Capture auto-started successfully!");
+        } catch (e) {
+          console.warn("[Tauri Init] Auto-start capture failed:", e);
+        }
       }
     };
 
@@ -79,7 +82,7 @@ export const App: React.FC = () => {
   // If this window is the overlay, render ONLY the floating overlay widget
   if (isOverlayMode) {
     return (
-      <div className="w-screen h-screen bg-transparent p-2">
+      <div className="w-screen h-screen bg-transparent p-2 select-none overflow-hidden box-border">
         <SubtitleOverlay />
       </div>
     );

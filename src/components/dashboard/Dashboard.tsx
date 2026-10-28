@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
-import { Mic, MicOff, Volume2, Sparkles, Languages, Activity, Radio } from "lucide-react";
+import { Mic, MicOff, Volume2, Sparkles, Languages, Activity, Radio, Tv, Cpu, Check } from "lucide-react";
 
 export const Dashboard: React.FC = () => {
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const subtitlesEndRef = React.useRef<HTMLDivElement>(null);
+  const [activeModel, setActiveModel] = useState("base.en");
+  const [overlayActive, setOverlayActive] = useState(false);
 
   const {
     devices,
@@ -18,6 +20,32 @@ export const Dashboard: React.FC = () => {
     latestSuggestion,
     setActiveTab,
   } = useAppStore();
+
+  useEffect(() => {
+    invoke("get_active_model")
+      .then((m: any) => {
+        if (m) setActiveModel(m);
+      })
+      .catch(console.warn);
+  }, []);
+
+  const handleSelectModel = async (model: string) => {
+    try {
+      const updated: any = await invoke("set_active_model", { modelName: model });
+      setActiveModel(updated || model);
+    } catch (e) {
+      console.error("Failed to switch model:", e);
+    }
+  };
+
+  const handleToggleOverlay = async () => {
+    try {
+      const isNowVisible: any = await invoke("toggle_overlay_window");
+      setOverlayActive(!!isNowVisible);
+    } catch (e) {
+      console.error("Failed to toggle overlay window:", e);
+    }
+  };
 
   React.useEffect(() => {
     if (scrollContainerRef.current) {
@@ -80,6 +108,57 @@ export const Dashboard: React.FC = () => {
           <div className="px-3 py-1.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
             🔒 100% Local First
           </div>
+        </div>
+      </div>
+
+      {/* Quick Action Toolbar: Transparent Overlay Button & AI Model Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-3 rounded-2xl bg-slate-900/60 border border-slate-800/80 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleToggleOverlay}
+            className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg ${
+              overlayActive
+                ? "bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20 border border-amber-400"
+                : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30 border border-indigo-400/30 hover:scale-[1.02]"
+            }`}
+          >
+            <Tv className="w-4 h-4" />
+            <span>{overlayActive ? "📺 Đang Bật Phụ Đề Nổi (Bấm để Ẩn)" : "📺 Bật Cửa Sổ Phụ Đề Nổi Trong Suốt"}</span>
+          </button>
+          <span className="text-xs text-slate-400 hidden sm:inline">
+            (Cửa sổ trong suốt ghim trên màn hình, xem cùng lúc với video/meeting)
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800/80 p-1 rounded-xl">
+          <span className="text-xs text-slate-400 flex items-center gap-1.5 px-2 font-medium">
+            <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+            Model Whisper:
+          </span>
+          <button
+            onClick={() => handleSelectModel("base.en")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeModel === "base.en"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+            }`}
+            title="Độ chính xác cao, nhận diện tốt ngữ âm tiếng Anh"
+          >
+            {activeModel === "base.en" && <Check className="w-3 h-3 text-white" />}
+            Base (Chuẩn - Khuyên dùng)
+          </button>
+          <button
+            onClick={() => handleSelectModel("tiny.en")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+              activeModel === "tiny.en"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+            }`}
+            title="Tốc độ dịch siêu nhanh, tốn rất ít CPU/RAM"
+          >
+            {activeModel === "tiny.en" && <Check className="w-3 h-3 text-white" />}
+            Tiny (Nhanh/Nhẹ)
+          </button>
         </div>
       </div>
 

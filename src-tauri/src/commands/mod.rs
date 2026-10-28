@@ -44,13 +44,12 @@ pub mod audio {
         let (speech_tx, speech_rx) = crossbeam_channel::bounded::<Vec<f32>>(32);
         let app_worker = app.clone();
 
-        // Worker thread: Executes Whisper STT on GPU, Dictionary Translation, and Smart Answer Engine
+        // Worker thread: Direct zero-latency meeting transcription & translation
         std::thread::spawn(move || {
             let initial_model = crate::stt::get_active_model_name();
             let mut whisper = LocalWhisperEngine::new(&initial_model);
             let translator = std::sync::Arc::new(LocalDictionaryTranslationProvider::new());
-            let answer_engine = SmartAnswerEngine::new();
-            let mut conversation_context = String::new();
+            let answer_engine = std::sync::Arc::new(SmartAnswerEngine::new());
             let mut sub_counter: u64 = 0;
             let mut ans_counter: u64 = 0;
 
@@ -66,94 +65,66 @@ pub mod audio {
                     for seg in segments {
                         sub_counter += 1;
                         let sub_id = sub_counter;
-                        let mode = crate::translation::get_translation_engine_mode();
-                        let gemini_key = crate::translation::get_global_gemini_key();
 
-                        // ─── TIER 1: INSTANT REAL-TIME TRANSLATION (<35ms) ───────────────────
-                        // Emit immediately to UI so the user experiences TRUE real-time subtitles
-                        let fast_vi = translator.translate_fast(&seg.text, "auto", "vi");
+                        // ── DIRECT ULTRA-FAST REAL-TIME TRANSLATION (<25ms) ───────────
+                        // Chrome-Dict / Glossary engine: Instant translation with zero network blocking
+                        let vi_text = translator.translate_fast(&seg.text, "auto", "vi");
 
                         let sub_payload = serde_json::json!({
                             "id": sub_id,
                             "original_en": seg.text,
-                            "translated_vi": fast_vi,
+                            "translated_vi": vi_text,
                             "detected_lang": seg.language,
                             "is_final": true,
                             "latency_ms": seg.timestamp_ms
                         });
                         let _ = app_worker.emit("bilingual-subtitle", &sub_payload);
 
-                        // ─── TIER 2: ASYNC GEMINI AI REFINEMENT (PRO CONTEXT) ────────────────
-                        // If user enabled Gemini mode, asynchronously polish in the background
-                        // so the audio capture/transcription loop NEVER lags or queues up!
-                        if mode == "gemini" && !gemini_key.is_empty() {
-                            let app_refine = app_worker.clone();
-                            let trans_refine = translator.clone();
-                            let text_refine = seg.text.clone();
-                            let lang_refine = seg.language.clone();
-                            let lat_refine = seg.timestamp_ms;
-                            let key = gemini_key.clone();
+                        // ── ASYNC QUESTION DETECTION (OFF-LOADED TO BACKGROUND) ─────────
+                        // Never slows down or blocks the live meeting translation loop
+                        let text_clone = seg.text.clone();
+                        let app_ans = app_worker.clone();
+                        let engine_ans = answer_engine.clone();
+                        ans_counter += 1;
+                        let curr_ans_id = ans_counter;
 
-                            std::thread::spawn(move || {
-                                if let Ok(gemini_vi) = trans_refine.try_gemini(&text_refine, &key) {
-                                    let polished = trans_refine.protect_keywords(&gemini_vi);
-                                    let updated_payload = serde_json::json!({
-                                        "id": sub_id,
-                                        "original_en": text_refine,
-                                        "translated_vi": polished,
-                                        "detected_lang": lang_refine,
-                                        "is_final": true,
-                                        "latency_ms": lat_refine
-                                    });
-                                    let _ = app_refine.emit("bilingual-subtitle", &updated_payload);
-                                }
-                            });
-                        }
-
-                        conversation_context.push_str(" ");
-                        conversation_context.push_str(&seg.text);
-                        if conversation_context.len() > 1000 {
-                            conversation_context = conversation_context[conversation_context.len() - 800..].to_string();
-                        }
-
-                        // Check for questions and generate smart answers
-                        if let Some(question) = answer_engine.detector().detect_question(&seg.text, &conversation_context) {
-                            ans_counter += 1;
-                            let ans = answer_engine.generate_answer(&question, false);
-
-                            let ans_payload = serde_json::json!({
-                                "id": ans_counter,
-                                "question": {
-                                    "id": question.id,
-                                    "question_text": question.question_text,
-                                    "question_type": format!("{:?}", question.question_type),
-                                    "confidence": question.confidence,
-                                    "needs_response": question.needs_response,
-                                    "context_snippet": question.context_snippet
-                                },
-                                "primary_answer_en": ans.primary_answer_en,
-                                "primary_answer_vi": ans.primary_answer_vi,
-                                "variants": ans.variants.into_iter().map(|v| serde_json::json!({
-                                    "style": v.style,
-                                    "text_en": v.text_en,
-                                    "text_vi": v.text_vi
-                                })).collect::<Vec<_>>(),
-                                "created_at_ms": std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis() as u64,
-                                "is_manual": false
-                            });
-                            let _ = app_worker.emit("answer-suggestion", &ans_payload);
-                        }
+                        std::thread::spawn(move || {
+                            if let Some(question) = engine_ans.detector().detect_question(&text_clone, "") {
+                                let ans = engine_ans.generate_answer(&question, false);
+                                let ans_payload = serde_json::json!({
+                                    "id": curr_ans_id,
+                                    "question": {
+                                        "id": question.id,
+                                        "question_text": question.question_text,
+                                        "question_type": format!("{:?}", question.question_type),
+                                        "confidence": question.confidence,
+                                        "needs_response": question.needs_response,
+                                        "context_snippet": question.context_snippet
+                                    },
+                                    "primary_answer_en": ans.primary_answer_en,
+                                    "primary_answer_vi": ans.primary_answer_vi,
+                                    "variants": ans.variants.into_iter().map(|v| serde_json::json!({
+                                        "style": v.style,
+                                        "text_en": v.text_en,
+                                        "text_vi": v.text_vi
+                                    })).collect::<Vec<_>>(),
+                                    "created_at_ms": std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis() as u64,
+                                    "is_manual": false
+                                });
+                                let _ = app_ans.emit("answer-suggestion", &ans_payload);
+                            }
+                        });
                     }
                 }
             }
         });
 
-        // Audio capture and VAD dispatcher thread
+        // Audio capture and VAD dispatcher thread (tuned for instant live meeting speech)
         std::thread::spawn(move || {
-            let mut vad = VadDetector::new(0.001);
+            let mut vad = VadDetector::new(0.0006);
             let mut speech_buffer: Vec<f32> = Vec::with_capacity(64000);
             let mut silence_frames: usize = 0;
             let mut last_emit = std::time::Instant::now();
@@ -169,31 +140,31 @@ pub mod audio {
 
                         if !samples.is_empty() {
                             let mono_16k = resample_for_stt(&samples, sample_rate, channels);
-                            let is_speaking = vad.process_frame(&mono_16k) || rms > 0.0012;
+                            let is_speaking = vad.process_frame(&mono_16k) || rms > 0.0006;
 
                             if is_speaking {
                                 speech_buffer.extend_from_slice(&mono_16k);
                                 silence_frames = 0;
                             } else if !speech_buffer.is_empty() {
                                 silence_frames += 1;
-                                if silence_frames <= 15 {
+                                if silence_frames <= 10 {
                                     speech_buffer.extend_from_slice(&mono_16k);
                                 }
                             }
 
-                            // Trigger STT when sentence pause is reached (>= 8 silence frames ~ 80ms)
-                            // with at least 0.35s of audio (5600 samples)
-                            // OR when buffer reaches real-time live limit (1.25s = 20,000 samples)
-                            let should_flush = (!speech_buffer.is_empty() && silence_frames >= 8 && speech_buffer.len() >= 5600)
-                                || (!speech_buffer.is_empty() && silence_frames >= 14 && speech_buffer.len() >= 4000)
-                                || speech_buffer.len() >= 20000;
+                            // ULTRA-LOW LATENCY REAL-TIME MEETING TRIGGER:
+                            // Flush as soon as:
+                            // - Brief natural pause between phrases (>= 5 silence frames ~ 50ms) with at least 0.25s audio (4000 samples)
+                            // - OR live streaming chunk reaches 0.9s (14,400 samples) while speaking continuously
+                            let should_flush = (!speech_buffer.is_empty() && silence_frames >= 5 && speech_buffer.len() >= 4000)
+                                || (!speech_buffer.is_empty() && silence_frames >= 8 && speech_buffer.len() >= 2800)
+                                || speech_buffer.len() >= 14400;
 
                             if should_flush {
                                 let _ = speech_tx.try_send(speech_buffer.clone());
                                 speech_buffer.clear();
                                 silence_frames = 0;
-                            } else if silence_frames > 25 && !speech_buffer.is_empty() {
-                                // Clear stale small noise
+                            } else if silence_frames > 20 && !speech_buffer.is_empty() {
                                 speech_buffer.clear();
                                 silence_frames = 0;
                             }

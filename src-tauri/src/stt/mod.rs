@@ -447,7 +447,9 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                     .arg("-f")
                     .arg(&temp_wav)
                     .arg("-t")
-                    .arg("6");
+                    .arg("6")
+                    .arg("-mc")
+                    .arg("128");
 
                 let model_str = model_path.to_string_lossy().to_lowercase();
                 let is_en_only = model_str.contains(".en.") || model_str.ends_with(".en.bin") || model_str.contains("-en.");
@@ -457,9 +459,6 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                 } else {
                     cmd.arg("-l").arg("auto");
                 }
-
-                cmd.arg("--prompt")
-                    .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
 
                 #[cfg(windows)]
                 {

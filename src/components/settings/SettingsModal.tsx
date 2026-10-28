@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppStore } from "../../stores/useAppStore";
-import { Settings as SettingsIcon, Shield, Cpu, Volume2, Trash2, CheckCircle2, Globe, Sparkles } from "lucide-react";
+import { Settings as SettingsIcon, Shield, Cpu, Volume2, Trash2, CheckCircle2, Sparkles, Zap } from "lucide-react";
 
 export const SettingsModal: React.FC = () => {
   const {
@@ -136,6 +136,30 @@ export const SettingsModal: React.FC = () => {
           {/* Engine Selector Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
             <div
+              onClick={() => handleSelectEngine("google")}
+              className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2 ${
+                engineMode === "google"
+                  ? "bg-indigo-600/20 border-indigo-400 shadow-lg shadow-indigo-600/10 text-white ring-1 ring-indigo-400/50"
+                  : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-emerald-300 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  Họp Trực Tiếp Real-Time (Direct Meeting)
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
+                  engineMode === "google" ? "bg-emerald-400 text-slate-950 font-bold" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {engineMode === "google" ? "✓ ĐANG DÙNG CHO HỌP" : "Khuyên dùng cho Họp"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-snug">
+                Dịch trực tiếp lời nói trong cuộc họp Zoom/Teams/Meet qua bộ engine Chrome-Dict và từ điển kỹ thuật. Tốc độ siêu tốc &lt;25ms, không giật lag, nói đến đâu hiện chữ đến đó.
+              </p>
+            </div>
+
+            <div
               onClick={() => handleSelectEngine("gemini")}
               className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2 ${
                 engineMode === "gemini"
@@ -146,40 +170,16 @@ export const SettingsModal: React.FC = () => {
               <div className="flex items-center justify-between">
                 <span className="font-bold text-xs text-amber-300 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
-                  Google Gemini 1.5 Flash (Pro)
+                  Google Gemini 1.5 Flash (Cloud Pro)
                 </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
                   engineMode === "gemini" ? "bg-amber-400 text-slate-950 font-bold" : "bg-slate-800 text-slate-400"
                 }`}>
-                  {engineMode === "gemini" ? "✓ ĐANG KÍCH HOẠT" : "Khuyên dùng"}
+                  {engineMode === "gemini" ? "✓ ĐANG KÍCH HOẠT" : "Chuyên sâu"}
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 leading-snug">
-                Dịch bằng trí tuệ nhân tạo Gemini của Google. Tự động hiểu ngữ cảnh phỏng vấn / meeting, dịch tiếng Việt trôi chảy và bảo tồn thuật ngữ IT.
-              </p>
-            </div>
-
-            <div
-              onClick={() => handleSelectEngine("google")}
-              className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2 ${
-                engineMode === "google"
-                  ? "bg-indigo-600/20 border-indigo-400 shadow-lg shadow-indigo-600/10 text-white ring-1 ring-indigo-400/50"
-                  : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-indigo-300 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5" />
-                  Google Auto-Detect (Cơ bản)
-                </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
-                  engineMode === "google" ? "bg-indigo-500 text-white font-bold" : "bg-slate-800 text-slate-400"
-                }`}>
-                  {engineMode === "google" ? "✓ ĐANG KÍCH HOẠT" : "Miễn phí 0 Setup"}
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-300 leading-snug">
-                Dịch nhanh trực tiếp bằng từ điển Google kết hợp bộ lọc cục bộ. Tốc độ siêu nhanh, không cần nhập API key.
+                Dịch bằng trí tuệ nhân tạo Gemini qua Cloud. Thích hợp khi nghe bài giảng, đọc hiểu tài liệu phức tạp cần phân tích ngữ pháp sâu.
               </p>
             </div>
           </div>

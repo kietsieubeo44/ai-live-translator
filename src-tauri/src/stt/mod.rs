@@ -447,10 +447,18 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                     .arg("-f")
                     .arg(&temp_wav)
                     .arg("-t")
-                    .arg("6")
-                    .arg("-l")
-                    .arg("auto")
-                    .arg("--prompt")
+                    .arg("6");
+
+                let model_str = model_path.to_string_lossy().to_lowercase();
+                let is_en_only = model_str.contains(".en.") || model_str.ends_with(".en.bin") || model_str.contains("-en.");
+                if is_en_only {
+                    cmd.arg("-l").arg("en");
+                    detected_language = "en".to_string();
+                } else {
+                    cmd.arg("-l").arg("auto");
+                }
+
+                cmd.arg("--prompt")
                     .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
 
                 #[cfg(windows)]
@@ -462,6 +470,9 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                 if let Ok(output) = cmd.output() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let stderr = String::from_utf8_lossy(&output.stderr);
+                    if !output.status.success() {
+                        log::error!("whisper-cli failed (exit code {:?}): {}", output.status.code(), stderr);
+                    }
                     let combined = format!("{}\n{}", stdout, stderr);
 
                     if let Some(pos) = combined.find("language = ") {

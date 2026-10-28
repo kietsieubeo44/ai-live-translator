@@ -36,6 +36,22 @@ export const App: React.FC = () => {
 
     // Initialize Tauri event listeners & device listing
     const initTauri = async () => {
+      // Sync Gemini API Key and Translation Engine settings from localStorage to Rust backend on startup
+      try {
+        const savedKey = localStorage.getItem("gemini_api_key");
+        if (savedKey) {
+          console.log("[Tauri Init] Syncing Gemini API Key to backend...");
+          await invoke("set_gemini_api_key", { key: savedKey });
+        }
+        const savedEngine = localStorage.getItem("translation_engine");
+        if (savedEngine) {
+          console.log("[Tauri Init] Syncing Translation Engine to backend:", savedEngine);
+          await invoke("set_translation_engine", { engine: savedEngine });
+        }
+      } catch (e) {
+        console.warn("[Tauri Init] Failed to sync settings to backend:", e);
+      }
+
       try {
         console.log("[Tauri Init] Subscribing to audio and subtitle events...");
         // Listen for real-time audio levels

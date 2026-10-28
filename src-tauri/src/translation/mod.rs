@@ -281,18 +281,22 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
         let mode = get_translation_engine_mode();
         let gemini_key = get_global_gemini_key();
 
-        if mode == "gemini" && !gemini_key.is_empty() {
-            match self.try_gemini(trimmed, &gemini_key) {
-                Ok(gemini_res) => {
-                    let final_trans = self.glossary.protect_keywords(&gemini_res);
-                    if let Ok(mut cache) = self.cache.lock() {
-                        cache.insert(trimmed.to_string(), final_trans.clone());
+        if mode == "gemini" {
+            if !gemini_key.is_empty() {
+                match self.try_gemini(trimmed, &gemini_key) {
+                    Ok(gemini_res) => {
+                        let final_trans = self.glossary.protect_keywords(&gemini_res);
+                        if let Ok(mut cache) = self.cache.lock() {
+                            cache.insert(trimmed.to_string(), final_trans.clone());
+                        }
+                        return Ok(final_trans);
                     }
-                    return Ok(final_trans);
+                    Err(err) => {
+                        log::warn!("Gemini translation failed: {}. Falling back to fast auto-detect.", err);
+                    }
                 }
-                Err(err) => {
-                    log::warn!("Gemini translation failed: {}. Falling back to fast auto-detect.", err);
-                }
+            } else {
+                log::debug!("Gemini mode selected but API key is empty. Proceeding to Google Auto-Detect.");
             }
         }
 

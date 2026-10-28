@@ -44,6 +44,13 @@ function deduplicatedAdd(
   prev: BilingualSubtitlePayload[],
   incoming: BilingualSubtitlePayload
 ): BilingualSubtitlePayload[] {
+  // If subtitle with incoming.id already exists (e.g. Gemini refinement), update it in place!
+  const existingIdx = prev.findIndex((s) => s.id === incoming.id);
+  if (existingIdx !== -1) {
+    const next = [...prev];
+    next[existingIdx] = { ...next[existingIdx], ...incoming };
+    return next;
+  }
   const tail = prev.slice(-DEDUP_WINDOW);
   const normIncoming = normalise(incoming.original_en);
   const isDuplicate = tail.some((s) => normalise(s.original_en) === normIncoming);

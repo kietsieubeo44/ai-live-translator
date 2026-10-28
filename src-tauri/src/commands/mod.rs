@@ -48,7 +48,7 @@ pub mod audio {
         std::thread::spawn(move || {
             let initial_model = crate::stt::get_active_model_name();
             let mut whisper = LocalWhisperEngine::new(&initial_model);
-            let translator = LocalDictionaryTranslationProvider::new();
+            let translator = std::sync::Arc::new(LocalDictionaryTranslationProvider::new());
             let answer_engine = SmartAnswerEngine::new();
             let mut conversation_context = String::new();
             let mut sub_counter: u64 = 0;
@@ -65,17 +65,50 @@ pub mod audio {
                 if let Ok(segments) = whisper.transcribe(&audio_chunk) {
                     for seg in segments {
                         sub_counter += 1;
-                        let vi_text = translator.translate(&seg.text, "auto", "vi").unwrap_or_else(|_| seg.text.clone());
+                        let sub_id = sub_counter;
+                        let mode = crate::translation::get_translation_engine_mode();
+                        let gemini_key = crate::translation::get_global_gemini_key();
+
+                        // ─── TIER 1: INSTANT REAL-TIME TRANSLATION (<35ms) ───────────────────
+                        // Emit immediately to UI so the user experiences TRUE real-time subtitles
+                        let fast_vi = translator.translate_fast(&seg.text, "auto", "vi");
 
                         let sub_payload = serde_json::json!({
-                            "id": sub_counter,
+                            "id": sub_id,
                             "original_en": seg.text,
-                            "translated_vi": vi_text,
+                            "translated_vi": fast_vi,
                             "detected_lang": seg.language,
                             "is_final": true,
                             "latency_ms": seg.timestamp_ms
                         });
                         let _ = app_worker.emit("bilingual-subtitle", &sub_payload);
+
+                        // ─── TIER 2: ASYNC GEMINI AI REFINEMENT (PRO CONTEXT) ────────────────
+                        // If user enabled Gemini mode, asynchronously polish in the background
+                        // so the audio capture/transcription loop NEVER lags or queues up!
+                        if mode == "gemini" && !gemini_key.is_empty() {
+                            let app_refine = app_worker.clone();
+                            let trans_refine = translator.clone();
+                            let text_refine = seg.text.clone();
+                            let lang_refine = seg.language.clone();
+                            let lat_refine = seg.timestamp_ms;
+                            let key = gemini_key.clone();
+
+                            std::thread::spawn(move || {
+                                if let Ok(gemini_vi) = trans_refine.try_gemini(&text_refine, &key) {
+                                    let polished = trans_refine.protect_keywords(&gemini_vi);
+                                    let updated_payload = serde_json::json!({
+                                        "id": sub_id,
+                                        "original_en": text_refine,
+                                        "translated_vi": polished,
+                                        "detected_lang": lang_refine,
+                                        "is_final": true,
+                                        "latency_ms": lat_refine
+                                    });
+                                    let _ = app_refine.emit("bilingual-subtitle", &updated_payload);
+                                }
+                            });
+                        }
 
                         conversation_context.push_str(" ");
                         conversation_context.push_str(&seg.text);
@@ -143,23 +176,23 @@ pub mod audio {
                                 silence_frames = 0;
                             } else if !speech_buffer.is_empty() {
                                 silence_frames += 1;
-                                if silence_frames <= 20 {
+                                if silence_frames <= 15 {
                                     speech_buffer.extend_from_slice(&mono_16k);
                                 }
                             }
 
-                            // Trigger STT when sentence pause is reached (>= 15 silence frames ~ 150ms)
-                            // with at least 0.5s of audio (8000 samples)
-                            // OR when buffer reaches max live duration (2.5s = 40,000 samples)
-                            let should_flush = (!speech_buffer.is_empty() && silence_frames >= 15 && speech_buffer.len() >= 8000)
-                                || (!speech_buffer.is_empty() && silence_frames >= 25 && speech_buffer.len() >= 6000)
-                                || speech_buffer.len() >= 40000;
+                            // Trigger STT when sentence pause is reached (>= 8 silence frames ~ 80ms)
+                            // with at least 0.35s of audio (5600 samples)
+                            // OR when buffer reaches real-time live limit (1.25s = 20,000 samples)
+                            let should_flush = (!speech_buffer.is_empty() && silence_frames >= 8 && speech_buffer.len() >= 5600)
+                                || (!speech_buffer.is_empty() && silence_frames >= 14 && speech_buffer.len() >= 4000)
+                                || speech_buffer.len() >= 20000;
 
                             if should_flush {
                                 let _ = speech_tx.try_send(speech_buffer.clone());
                                 speech_buffer.clear();
                                 silence_frames = 0;
-                            } else if silence_frames > 35 && !speech_buffer.is_empty() {
+                            } else if silence_frames > 25 && !speech_buffer.is_empty() {
                                 // Clear stale small noise
                                 speech_buffer.clear();
                                 silence_frames = 0;

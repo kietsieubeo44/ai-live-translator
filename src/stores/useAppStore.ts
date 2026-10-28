@@ -143,7 +143,15 @@ export const useAppStore = create<AppState>((set) => ({
       // Remove placeholder welcome subtitle when real audio subtitles start arriving
       const existing = state.subtitles.filter((s) => s.id !== 1 || s.latency_ms !== 0);
 
-      // Ignore if identical or matching any of the last 3 subtitles
+      // Check if this subtitle ID already exists (e.g. Gemini refinement of instant translation)
+      const existingIdx = existing.findIndex((s) => s.id === sub.id);
+      if (existingIdx !== -1) {
+        const updated = [...existing];
+        updated[existingIdx] = { ...updated[existingIdx], ...sub };
+        return { subtitles: updated, interimTranscript: "" };
+      }
+
+      // Ignore if identical to any of the last 3 subtitles
       const isDup = existing.slice(-3).some((s) => {
         const existingClean = s.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-\[\]]/g, '');
         return existingClean === cleanEn;

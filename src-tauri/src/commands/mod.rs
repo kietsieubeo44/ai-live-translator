@@ -288,6 +288,28 @@ pub mod translation {
     }
 
     #[tauri::command]
+    pub fn get_gemini_api_key() -> String {
+        crate::translation::get_global_gemini_key()
+    }
+
+    #[tauri::command]
+    pub fn get_translation_engine() -> String {
+        crate::translation::get_translation_engine_mode()
+    }
+
+    #[tauri::command]
+    pub fn set_translation_engine(engine: String) -> Result<String, String> {
+        crate::translation::set_translation_engine_mode(&engine);
+        Ok(crate::translation::get_translation_engine_mode())
+    }
+
+    #[tauri::command]
+    pub fn test_gemini_key(key: String) -> Result<String, String> {
+        let provider = LocalDictionaryTranslationProvider::new();
+        provider.test_gemini(&key)
+    }
+
+    #[tauri::command]
     pub fn translate_text(text: String) -> Result<TranslationItem, String> {
         let provider = LocalDictionaryTranslationProvider::new();
         let translated = provider.translate(&text, "en", "vi").map_err(|e| e.to_string())?;

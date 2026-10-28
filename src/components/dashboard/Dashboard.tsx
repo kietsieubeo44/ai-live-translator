@@ -7,6 +7,7 @@ export const Dashboard: React.FC = () => {
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
   const subtitlesEndRef = React.useRef<HTMLDivElement>(null);
   const [activeModel, setActiveModel] = useState("base.en");
+  const [translationEngine, setTranslationEngine] = useState("gemini");
   const [overlayActive, setOverlayActive] = useState(false);
 
   const {
@@ -27,6 +28,10 @@ export const Dashboard: React.FC = () => {
         if (m) setActiveModel(m);
       })
       .catch(console.warn);
+
+    const savedEngine = localStorage.getItem("translation_engine") || "gemini";
+    setTranslationEngine(savedEngine);
+    invoke("set_translation_engine", { engine: savedEngine }).catch(console.warn);
   }, []);
 
   const handleSelectModel = async (model: string) => {
@@ -35,6 +40,16 @@ export const Dashboard: React.FC = () => {
       setActiveModel(updated || model);
     } catch (e) {
       console.error("Failed to switch model:", e);
+    }
+  };
+
+  const handleSelectEngine = async (engine: string) => {
+    try {
+      setTranslationEngine(engine);
+      localStorage.setItem("translation_engine", engine);
+      await invoke("set_translation_engine", { engine });
+    } catch (e) {
+      console.error("Failed to switch translation engine:", e);
     }
   };
 
@@ -130,35 +145,70 @@ export const Dashboard: React.FC = () => {
           </span>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800/80 p-1 rounded-xl">
-          <span className="text-xs text-slate-400 flex items-center gap-1.5 px-2 font-medium">
-            <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-            Model Whisper:
-          </span>
-          <button
-            onClick={() => handleSelectModel("base.en")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeModel === "base.en"
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-            }`}
-            title="Độ chính xác cao, nhận diện tốt ngữ âm tiếng Anh"
-          >
-            {activeModel === "base.en" && <Check className="w-3 h-3 text-white" />}
-            Base (Chuẩn - Khuyên dùng)
-          </button>
-          <button
-            onClick={() => handleSelectModel("tiny.en")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeModel === "tiny.en"
-                ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-            }`}
-            title="Tốc độ dịch siêu nhanh, tốn rất ít CPU/RAM"
-          >
-            {activeModel === "tiny.en" && <Check className="w-3 h-3 text-white" />}
-            Tiny (Nhanh/Nhẹ)
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Whisper STT Model Selector */}
+          <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800/80 p-1 rounded-xl">
+            <span className="text-xs text-slate-400 flex items-center gap-1.5 px-2 font-medium">
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+              Whisper STT:
+            </span>
+            <button
+              onClick={() => handleSelectModel("base.en")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeModel === "base.en"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+              }`}
+              title="Độ chính xác cao, nhận diện tốt ngữ âm tiếng Anh"
+            >
+              {activeModel === "base.en" && <Check className="w-3 h-3 text-white" />}
+              Base (Chuẩn)
+            </button>
+            <button
+              onClick={() => handleSelectModel("tiny.en")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeModel === "tiny.en"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+              }`}
+              title="Tốc độ dịch siêu nhanh, tốn rất ít CPU/RAM"
+            >
+              {activeModel === "tiny.en" && <Check className="w-3 h-3 text-white" />}
+              Tiny (Nhanh)
+            </button>
+          </div>
+
+          {/* Translation Engine Selector */}
+          <div className="flex items-center gap-2 bg-slate-950/80 border border-slate-800/80 p-1 rounded-xl">
+            <span className="text-xs text-slate-400 flex items-center gap-1.5 px-2 font-medium">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Bộ Dịch:
+            </span>
+            <button
+              onClick={() => handleSelectEngine("gemini")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                translationEngine === "gemini"
+                  ? "bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/20"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+              }`}
+              title="Dịch hoàn toàn bằng AI Gemini 1.5 Flash (Hiểu ngữ cảnh meeting, tự nhiên)"
+            >
+              {translationEngine === "gemini" && <Check className="w-3 h-3 text-slate-950 stroke-[3]" />}
+              ✨ Gemini AI (Cloud Pro)
+            </button>
+            <button
+              onClick={() => handleSelectEngine("google")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                translationEngine === "google"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+              }`}
+              title="Dịch nhanh bằng Google Auto-Detect (Cơ bản, không cần key)"
+            >
+              {translationEngine === "google" && <Check className="w-3 h-3 text-white" />}
+              ⚡ Google Auto
+            </button>
+          </div>
         </div>
       </div>
 

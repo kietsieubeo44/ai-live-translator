@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 static GLOBAL_GEMINI_KEY: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
+static GLOBAL_TRANSLATION_ENGINE: OnceLock<Arc<Mutex<String>>> = OnceLock::new();
 
 pub fn get_gemini_key_holder() -> &'static Arc<Mutex<String>> {
     GLOBAL_GEMINI_KEY.get_or_init(|| {
@@ -27,6 +28,22 @@ pub fn set_global_gemini_key(key: &str) {
 pub fn get_global_gemini_key() -> String {
     let holder = get_gemini_key_holder();
     holder.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+pub fn get_engine_holder() -> &'static Arc<Mutex<String>> {
+    GLOBAL_TRANSLATION_ENGINE.get_or_init(|| Arc::new(Mutex::new("gemini".to_string())))
+}
+
+pub fn set_translation_engine_mode(engine: &str) {
+    let holder = get_engine_holder();
+    if let Ok(mut lock) = holder.lock() {
+        *lock = engine.trim().to_lowercase();
+    }
+}
+
+pub fn get_translation_engine_mode() -> String {
+    let holder = get_engine_holder();
+    holder.lock().map(|g| g.clone()).unwrap_or_else(|_| "gemini".to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,14 +148,15 @@ impl LocalDictionaryTranslationProvider {
         }
     }
 
-    /// Try translating via Gemini 1.5 Flash if API key is supplied
-    fn try_gemini(&self, text: &str, api_key: &str) -> Option<String> {
-        if api_key.trim().is_empty() {
-            return None;
+    /// Try translating via Gemini 1.5 Flash with detailed error reporting
+    pub fn try_gemini(&self, text: &str, api_key: &str) -> std::result::Result<String, String> {
+        let key = api_key.trim();
+        if key.is_empty() {
+            return Err("Chưa nhập Gemini API Key. Vui lòng vào Cài đặt để dán Key.".to_string());
         }
 
         let prompt = format!(
-            "Translate this live meeting speech into fluent, natural Vietnamese. Preserve technical words (Kubernetes, Docker, API, microservices, AWS, Jira) in English. Return ONLY the translated sentence, without any explanation or quotes:\n\n{}",
+            "Translate this live meeting speech into fluent, natural Vietnamese. Preserve technical words (Kubernetes, Docker, API, microservices, AWS, Jira, CI/CD, Sprint, Scrum, PR, Git) in English. Return ONLY the translated sentence, without any explanation, markdown or quotes:\n\n{}",
             text
         );
         let payload = serde_json::json!({
@@ -150,20 +168,37 @@ impl LocalDictionaryTranslationProvider {
         });
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}",
-            api_key.trim()
+            key
         );
 
-        if let Ok(resp) = self.client.post(&url).json(&payload).send() {
-            if let Ok(json) = resp.json::<serde_json::Value>() {
-                if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
-                    let clean = txt.trim().to_string();
-                    if !clean.is_empty() {
-                        return Some(clean);
-                    }
+        let resp = self.client.post(&url).json(&payload).send()
+            .map_err(|e| format!("Lỗi kết nối Gemini API: {}", e))?;
+
+        let status = resp.status();
+        let body = resp.text().unwrap_or_default();
+
+        if !status.is_success() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(msg) = json["error"]["message"].as_str() {
+                    return Err(format!("Lỗi Gemini ({}): {}", status, msg));
+                }
+            }
+            return Err(format!("Lỗi Gemini HTTP {}", status));
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                let clean = txt.trim().to_string();
+                if !clean.is_empty() {
+                    return Ok(clean);
                 }
             }
         }
-        None
+        Err("Gemini API không trả về nội dung hợp lệ".to_string())
+    }
+
+    pub fn test_gemini(&self, api_key: &str) -> std::result::Result<String, String> {
+        self.try_gemini("Hello everyone, we are testing the Gemini AI real-time translation integration.", api_key)
     }
 
     /// Primary Chrome-Extension Google Translate API (fastest, supports auto-detect)
@@ -238,25 +273,32 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
             }
         }
 
-        // 2. Direct technical meeting idioms lookup
+        // 2. Primary: Gemini 1.5 Flash Cloud Translation (Full contextual intelligence)
+        let mode = get_translation_engine_mode();
+        let gemini_key = get_global_gemini_key();
+
+        if (mode == "gemini" || !gemini_key.is_empty()) && !gemini_key.is_empty() {
+            match self.try_gemini(trimmed, &gemini_key) {
+                Ok(gemini_res) => {
+                    let final_trans = self.glossary.protect_keywords(&gemini_res);
+                    if let Ok(mut cache) = self.cache.lock() {
+                        cache.insert(trimmed.to_string(), final_trans.clone());
+                    }
+                    return Ok(final_trans);
+                }
+                Err(err) => {
+                    log::warn!("Gemini translation failed: {}. Falling back to fast auto-detect.", err);
+                }
+            }
+        }
+
+        // 3. Direct technical meeting idioms lookup
         if let Some(vi) = self.glossary.lookup_phrase(trimmed) {
             let result = format!("{}{}", vi, if trimmed.ends_with('?') && !vi.ends_with('?') { "?" } else { "" });
             if let Ok(mut cache) = self.cache.lock() {
                 cache.insert(trimmed.to_string(), result.clone());
             }
             return Ok(result);
-        }
-
-        // 3. Optional Gemini 1.5 Flash translation
-        let gemini_key = get_global_gemini_key();
-        if !gemini_key.is_empty() {
-            if let Some(gemini_res) = self.try_gemini(trimmed, &gemini_key) {
-                let final_trans = self.glossary.protect_keywords(&gemini_res);
-                if let Ok(mut cache) = self.cache.lock() {
-                    cache.insert(trimmed.to_string(), final_trans.clone());
-                }
-                return Ok(final_trans);
-            }
         }
 
         // 4. Primary Google Translate Chrome-Dict endpoint (high speed, auto-detects language)

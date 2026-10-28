@@ -15,8 +15,10 @@ export const SettingsModal: React.FC = () => {
   const [clearedNotice, setClearedNotice] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [keySaved, setKeySaved] = useState(false);
-  const [testPhrase, setTestPhrase] = useState("I believe Huang is in middle of the preparation.");
+  const [engineMode, setEngineMode] = useState("gemini");
+  const [testPhrase, setTestPhrase] = useState("I believe Huang is in middle of the preparation for Kubernetes deployment.");
   const [testResult, setTestResult] = useState("");
+  const [testStatus, setTestStatus] = useState<"idle" | "success" | "error">("idle");
   const [isTranslating, setIsTranslating] = useState(false);
 
   useEffect(() => {
@@ -25,12 +27,26 @@ export const SettingsModal: React.FC = () => {
     if (saved) {
       invoke("set_gemini_api_key", { key: saved }).catch(console.error);
     }
+    const savedEngine = localStorage.getItem("translation_engine") || "gemini";
+    setEngineMode(savedEngine);
+    invoke("set_translation_engine", { engine: savedEngine }).catch(console.error);
+
     invoke("get_active_model")
       .then((m: any) => {
         if (m) setSelectedModel(m);
       })
       .catch(console.warn);
   }, []);
+
+  const handleSelectEngine = async (engine: string) => {
+    try {
+      setEngineMode(engine);
+      localStorage.setItem("translation_engine", engine);
+      await invoke("set_translation_engine", { engine });
+    } catch (e) {
+      console.error("Failed to set translation engine:", e);
+    }
+  };
 
   const handleModelSelect = async (modelId: string) => {
     try {
@@ -56,11 +72,23 @@ export const SettingsModal: React.FC = () => {
     if (!testPhrase.trim()) return;
     setIsTranslating(true);
     setTestResult("");
+    setTestStatus("idle");
     try {
+      if (engineMode === "gemini") {
+        if (!geminiApiKey.trim()) {
+          setTestResult("Vui lòng nhập Gemini API Key ở ô phía trên trước khi thử nghiệm.");
+          setTestStatus("error");
+          setIsTranslating(false);
+          return;
+        }
+        await invoke("set_gemini_api_key", { key: geminiApiKey });
+      }
       const res: any = await invoke("translate_text", { text: testPhrase });
-      setTestResult(res?.translated_vi || "Translation returned empty");
+      setTestResult(res?.translated_vi || "Không có kết quả");
+      setTestStatus("success");
     } catch (e: any) {
-      setTestResult(`Error: ${e?.message || e}`);
+      setTestResult(`Lỗi: ${e?.message || e}`);
+      setTestStatus("error");
     } finally {
       setIsTranslating(false);
     }
@@ -86,50 +114,127 @@ export const SettingsModal: React.FC = () => {
       </div>
 
       <div className="space-y-6 max-w-3xl">
-        {/* Section 1: Translation Engine & Language Auto-Detect */}
+        {/* Section 1: Translation Engine Selection */}
         <div className="glass-panel p-5 rounded-2xl space-y-4 border border-slate-800">
-          <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-            <Globe className="w-4 h-4 text-emerald-400" />
-            Bilingual Vietnamese Translation Engine
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              Bộ Dịch Phụ Đề (Translation Engine)
+            </h3>
+            <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold border ${
+              engineMode === "gemini"
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                : "bg-indigo-500/20 text-indigo-300 border-indigo-500/40"
+            }`}>
+              {engineMode === "gemini" ? "✨ Đang Dùng AI Gemini" : "⚡ Google Auto-Detect"}
+            </span>
+          </div>
           <p className="text-xs text-slate-400">
-            Automatically detects spoken language (English, etc.) and translates naturally to Vietnamese with technical term protection (Kubernetes, Docker, Microservices, AWS).
+            Chọn bộ máy dịch theo ý muốn. Bạn có thể chuyển hẳn sang dùng 100% Google Gemini AI qua API Key để có chất lượng dịch chuẩn văn phong hội thoại cao nhất.
           </p>
 
-          <div className="space-y-3 pt-1">
-            <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Optional Gemini 1.5 Flash API Key (for Context-Aware Pro Translation)
+          {/* Engine Selector Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+            <div
+              onClick={() => handleSelectEngine("gemini")}
+              className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2 ${
+                engineMode === "gemini"
+                  ? "bg-amber-500/15 border-amber-400/80 shadow-lg shadow-amber-500/10 text-white ring-1 ring-amber-400/50"
+                  : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-amber-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Google Gemini 1.5 Flash (Pro)
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
+                  engineMode === "gemini" ? "bg-amber-400 text-slate-950 font-bold" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {engineMode === "gemini" ? "✓ ĐANG KÍCH HOẠT" : "Khuyên dùng"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-snug">
+                Dịch bằng trí tuệ nhân tạo Gemini của Google. Tự động hiểu ngữ cảnh phỏng vấn / meeting, dịch tiếng Việt trôi chảy và bảo tồn thuật ngữ IT.
+              </p>
+            </div>
+
+            <div
+              onClick={() => handleSelectEngine("google")}
+              className={`p-4 rounded-xl border cursor-pointer transition-all space-y-2 ${
+                engineMode === "google"
+                  ? "bg-indigo-600/20 border-indigo-400 shadow-lg shadow-indigo-600/10 text-white ring-1 ring-indigo-400/50"
+                  : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-300"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-xs text-indigo-300 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" />
+                  Google Auto-Detect (Cơ bản)
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
+                  engineMode === "google" ? "bg-indigo-500 text-white font-bold" : "bg-slate-800 text-slate-400"
+                }`}>
+                  {engineMode === "google" ? "✓ ĐANG KÍCH HOẠT" : "Miễn phí 0 Setup"}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-snug">
+                Dịch nhanh trực tiếp bằng từ điển Google kết hợp bộ lọc cục bộ. Tốc độ siêu nhanh, không cần nhập API key.
+              </p>
+            </div>
+          </div>
+
+          {/* Gemini API Key Configuration Box */}
+          <div className={`p-4 rounded-xl space-y-3 transition-all ${
+            engineMode === "gemini"
+              ? "bg-amber-950/20 border border-amber-500/30"
+              : "bg-slate-900/60 border border-slate-800"
+          }`}>
+            <label className="text-xs font-semibold text-slate-200 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Google Gemini API Key:
+              </span>
+              <a
+                href="https://aistudio.google.com"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-amber-400 hover:text-amber-300 underline"
+              >
+                Lấy Key miễn phí tại Google AI Studio ↗
+              </a>
             </label>
             <div className="flex gap-2">
               <input
                 type="password"
-                placeholder="AIzaSy... (leave blank to use instant Google Auto-Detect)"
+                placeholder="AIzaSy... (Dán key Gemini của bạn vào đây)"
                 value={geminiApiKey}
                 onChange={(e) => setGeminiApiKey(e.target.value)}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
               />
               <button
                 onClick={handleSaveGeminiKey}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl transition-all"
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-xl transition-all shadow-md"
               >
-                {keySaved ? "Saved!" : "Save Key"}
+                {keySaved ? "Đã Lưu Key!" : "Lưu Key"}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">
-              When left blank, the app uses the built-in fast Auto-Detect Google translation engine (free, instant, 0 setup).
-            </p>
+            {engineMode === "gemini" && !geminiApiKey && (
+              <p className="text-[11px] text-amber-300/90 font-medium">
+                ⚠️ Chế độ Gemini AI đang bật: Hãy dán key vào ô trên và bấm "Lưu Key" để AI bắt đầu dịch.
+              </p>
+            )}
 
             {/* Test Translation Box */}
-            <div className="mt-4 p-4 rounded-xl bg-slate-900/80 border border-slate-800 space-y-3">
+            <div className="mt-3 pt-3 border-t border-white/5 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300">Live Translation Test:</span>
+                <span className="text-xs font-semibold text-slate-300">Thử nghiệm dịch thực tế (Test):</span>
                 <button
                   onClick={handleTestTranslation}
                   disabled={isTranslating}
-                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-all"
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-all"
                 >
-                  {isTranslating ? "Translating..." : "Test Translate"}
+                  {isTranslating ? "Đang dịch..." : "Dịch Thử Nghiệm"}
                 </button>
               </div>
               <input
@@ -139,8 +244,13 @@ export const SettingsModal: React.FC = () => {
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200"
               />
               {testResult && (
-                <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-medium">
-                  🇻🇳 Tiếng Việt: <span className="font-semibold text-white">{testResult}</span>
+                <div className={`p-2.5 rounded-lg text-xs font-medium border ${
+                  testStatus === "error"
+                    ? "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                    : "bg-emerald-950/40 border-emerald-500/30 text-emerald-300"
+                }`}>
+                  {testStatus === "error" ? "❌ " : "🇻🇳 "}
+                  <span className="font-semibold text-white">{testResult}</span>
                 </div>
               )}
             </div>

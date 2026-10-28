@@ -205,6 +205,68 @@ impl LocalDictionaryTranslationProvider {
         self.try_gemini("Hello everyone, we are testing the Gemini AI real-time translation integration.", api_key)
     }
 
+    /// Intelligent AI Meeting Minutes & Key Takeaways Generator (inspired by Felo AI)
+    pub fn summarize_meeting(&self, transcript: &str, api_key: &str) -> std::result::Result<String, String> {
+        let key = api_key.trim();
+        if key.is_empty() {
+            return Err("Chưa có Gemini API Key để thực hiện tóm tắt cuộc họp.".to_string());
+        }
+
+        let prompt = format!(
+            "Bạn là một trợ lý thư ký cuộc họp AI chuyên nghiệp cao cấp (tương tự tính năng Felo AI Meeting Minutes).\n\
+            Dưới đây là toàn bộ nhật ký phiên dịch cuộc họp / hội thoại thực tế:\n\n\
+            \"\"\"\n{}\n\"\"\"\n\n\
+            Dựa trên nội dung thảo luận trên, hãy lập một Biên Bản Tóm Tắt Cuộc Họp & Điểm Cốt Lõi bằng Tiếng Việt theo cấu trúc chuẩn Markdown sau:\n\n\
+            ### 📌 1. Tổng Quan Cuộc Họp (Overview & Context)\n\
+            (Tóm tắt ngắn gọn 2-3 câu về bối cảnh, mục đích và chủ đề chính được trao đổi)\n\n\
+            ### 💡 2. Các Luận Điểm Thảo Luận Trọng Tâm (Key Discussion Points)\n\
+            (Liệt kê các ý kiến, vấn đề kỹ thuật và giải pháp được thảo luận dưới dạng gạch đầu dòng chi tiết)\n\n\
+            ### 🎯 3. Việc Cần Làm & Phân Công Nhiệm Vụ (Action Items & Next Steps)\n\
+            (Liệt kê các việc cần làm, ai phụ trách nếu có đề cập)\n\n\
+            ### 📖 4. Thuật Ngữ Kỹ Thuật Quan Trọng (Glossary & Tech Stack)\n\
+            (Ghi chú ngắn các công nghệ hoặc thuật ngữ nổi bật như Docker, K8s, API, AWS, Sprint...)\n\n\
+            Hãy trình bày thật chuyên nghiệp, súc tích, văn phong hiện đại, trực quan.",
+            transcript
+        );
+
+        let payload = serde_json::json!({
+            "contents": [{ "parts": [{ "text": prompt }] }],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 1800
+            }
+        });
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={}",
+            key
+        );
+
+        let resp = self.client.post(&url).json(&payload).send()
+            .map_err(|e| format!("Lỗi kết nối Gemini API: {}", e))?;
+
+        let status = resp.status();
+        let body = resp.text().unwrap_or_default();
+
+        if !status.is_success() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(msg) = json["error"]["message"].as_str() {
+                    return Err(format!("Lỗi Gemini ({}): {}", status, msg));
+                }
+            }
+            return Err(format!("Lỗi Gemini HTTP {}", status));
+        }
+
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                let clean = txt.trim().to_string();
+                if !clean.is_empty() {
+                    return Ok(clean);
+                }
+            }
+        }
+        Err("Gemini API không trả về nội dung tóm tắt hợp lệ".to_string())
+    }
+
     /// Primary Chrome-Extension Google Translate API (fastest, supports auto-detect)
     fn try_google_dict_chrome(&self, text: &str, target_lang: &str) -> Option<String> {
         let resp = self.client
@@ -360,4 +422,89 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
     fn is_local(&self) -> bool {
         true
     }
+}
+
+pub fn generate_local_meeting_summary(transcript: &str) -> String {
+    let lines: Vec<&str> = transcript
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with("===") && !l.starts_with("---"))
+        .collect();
+
+    let total_lines = lines.len();
+    if total_lines == 0 {
+        return "Chưa có đủ nội dung hội thoại để tạo biên bản tóm tắt cuộc họp.".to_string();
+    }
+
+    let mut key_points = Vec::new();
+    let mut action_items = Vec::new();
+    let mut tech_terms = Vec::new();
+
+    let tech_keywords = [
+        "Kubernetes", "Docker", "AWS", "GCP", "Azure", "API", "Database",
+        "Microservices", "Frontend", "Backend", "CI/CD", "Git", "Bug", "Sprint",
+        "React", "Rust", "Node", "PostgreSQL", "Redis", "Kafka",
+    ];
+
+    for line in &lines {
+        let lower = line.to_lowercase();
+        // Check for tech terms
+        for &kw in &tech_keywords {
+            if lower.contains(&kw.to_lowercase()) && !tech_terms.contains(&kw.to_string()) {
+                tech_terms.push(kw.to_string());
+            }
+        }
+        // Action keywords
+        if lower.contains("need to")
+            || lower.contains("cần")
+            || lower.contains("phải")
+            || lower.contains("will do")
+            || lower.contains("deploy")
+            || lower.contains("fix")
+            || lower.contains("action")
+            || lower.contains("tiến hành")
+        {
+            if action_items.len() < 5 {
+                action_items.push(line.to_string());
+            }
+        } else if key_points.len() < 6 && line.len() > 15 {
+            key_points.push(line.to_string());
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str("### 📌 1. Tổng Quan Cuộc Họp (Overview)\n");
+    out.push_str(&format!(
+        "Cuộc họp gồm **{}** lượt phát biểu đã được ghi nhận và phiên dịch song ngữ tự động.\n\n",
+        total_lines
+    ));
+
+    out.push_str("### 💡 2. Các Luận Điểm Đáng Chú Ý (Key Discussion Points)\n");
+    if key_points.is_empty() {
+        out.push_str("- Đã ghi nhận các trao đổi hội thoại và kỹ thuật liên tục.\n");
+    } else {
+        for p in key_points {
+            out.push_str(&format!("- {}\n", p));
+        }
+    }
+    out.push_str("\n");
+
+    out.push_str("### 🎯 3. Việc Cần Làm & Hành Động (Action Items)\n");
+    if action_items.is_empty() {
+        out.push_str("- Tiếp tục theo dõi tiến độ các hạng mục đã thảo luận.\n");
+    } else {
+        for a in action_items {
+            out.push_str(&format!("- [ ] {}\n", a));
+        }
+    }
+    out.push_str("\n");
+
+    out.push_str("### 📖 4. Thuật Ngữ & Công Nghệ Được Nhắc Đến (Tech Terms)\n");
+    if tech_terms.is_empty() {
+        out.push_str("- Hệ thống thuật ngữ công nghệ thông dụng.\n");
+    } else {
+        out.push_str(&format!("- {}\n", tech_terms.join(", ")));
+    }
+
+    out
 }

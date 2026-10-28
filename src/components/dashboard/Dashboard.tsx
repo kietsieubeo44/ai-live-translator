@@ -139,6 +139,14 @@ export const Dashboard: React.FC = () => {
             <Tv className="w-4 h-4" />
             <span>{overlayActive ? "📺 Đang Bật Phụ Đề Nổi (Bấm để Ẩn)" : "📺 Bật Cửa Sổ Phụ Đề Nổi Trong Suốt"}</span>
           </button>
+          <button
+            onClick={() => setActiveTab("subtitles")}
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 text-purple-200 border border-purple-500/30 transition-all"
+            title="Xem toàn bộ phụ đề và tóm tắt cuộc họp bằng AI (Felo style)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span>Felo Feed & Tóm Tắt AI</span>
+          </button>
           <span className="text-xs text-slate-400 hidden sm:inline">
             (Cửa sổ trong suốt ghim trên màn hình, xem cùng lúc với video/meeting)
           </span>

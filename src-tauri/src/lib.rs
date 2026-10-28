@@ -47,6 +47,7 @@ pub fn run() {
             commands::overlay::resize_overlay_window,
             commands::overlay::start_overlay_dragging,
             commands::translation::translate_text,
+            commands::translation::summarize_meeting,
             commands::translation::set_gemini_api_key,
             commands::translation::get_gemini_api_key,
             commands::translation::get_translation_engine,

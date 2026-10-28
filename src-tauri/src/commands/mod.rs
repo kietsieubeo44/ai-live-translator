@@ -1,4 +1,4 @@
-﻿// Tauri IPC Command Handlers
+// Tauri IPC Command Handlers
 // Bridges React frontend and Rust backend
 
 pub mod audio {
@@ -341,6 +341,23 @@ pub mod translation {
             is_final: true,
             latency_ms: 12,
         })
+    }
+
+    #[tauri::command]
+    pub fn summarize_meeting(transcript: String) -> Result<String, String> {
+        let key = crate::translation::get_global_gemini_key();
+        let provider = LocalDictionaryTranslationProvider::new();
+        if !key.is_empty() {
+            match provider.summarize_meeting(&transcript, &key) {
+                Ok(summary) => Ok(summary),
+                Err(err) => {
+                    log::warn!("Gemini summarization failed ({}). Using local summary fallback.", err);
+                    Ok(crate::translation::generate_local_meeting_summary(&transcript))
+                }
+            }
+        } else {
+            Ok(crate::translation::generate_local_meeting_summary(&transcript))
+        }
     }
 }
 

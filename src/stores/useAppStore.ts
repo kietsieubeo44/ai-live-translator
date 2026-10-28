@@ -115,38 +115,7 @@ export const useAppStore = create<AppState>((set) => ({
   ],
   interimTranscript: "",
 
-  latestSuggestion: {
-    id: 1,
-    question: {
-      id: 1,
-      question_text: "Can you tell us about your experience with microservices architecture?",
-      question_type: "Interview",
-      confidence: 0.94,
-      needs_response: true,
-      context_snippet: "Discussion on system design and scaling",
-    },
-    primary_answer_en: "In my recent projects, I have worked with microservices using Docker and Kubernetes, focusing on clean service separation, API gateways, and asynchronous event messaging.",
-    primary_answer_vi: "Trong các dự án gần đây, tôi đã làm việc với kiến trúc microservices sử dụng Docker và Kubernetes, tập trung vào phân tách service rõ ràng, API gateway và giao tiếp bất đồng bộ qua event.",
-    variants: [
-      {
-        style: "Professional",
-        text_en: "In my recent projects, I have worked with microservices using Docker and Kubernetes, focusing on clean service separation, API gateways, and asynchronous event messaging.",
-        text_vi: "Trong các dự án gần đây, tôi đã làm việc với kiến trúc microservices sử dụng Docker và Kubernetes, tập trung vào phân tách service rõ ràng, API gateway và giao tiếp bất đồng bộ qua event."
-      },
-      {
-        style: "Concise",
-        text_en: "I design microservices with containerization, API gateways, and reliable message queues for scale.",
-        text_vi: "Tôi thiết kế microservices với container, API gateway và message queue tin cậy để mở rộng hệ thống."
-      },
-      {
-        style: "Friendly",
-        text_en: "I really enjoy building microservices! Containerizing with Docker and orchestrating on Kubernetes makes deployment so smooth.",
-        text_vi: "Tôi rất thích phát triển microservices! Việc đóng gói với Docker và điều phối trên Kubernetes giúp triển khai rất mượt mà."
-      }
-    ],
-    created_at_ms: Date.now(),
-    is_manual: false,
-  },
+  latestSuggestion: null,
   suggestionHistory: [],
   selectedVariantStyle: "Professional",
   knowledgeDocs: [],
@@ -174,7 +143,15 @@ export const useAppStore = create<AppState>((set) => ({
       // Remove placeholder welcome subtitle when real audio subtitles start arriving
       const existing = state.subtitles.filter((s) => s.id !== 1 || s.latency_ms !== 0);
 
-      // Ignore if identical or matching any of the last 3 subtitles
+      // Check if this subtitle ID already exists (e.g. Gemini refinement of instant translation)
+      const existingIdx = existing.findIndex((s) => s.id === sub.id);
+      if (existingIdx !== -1) {
+        const updated = [...existing];
+        updated[existingIdx] = { ...updated[existingIdx], ...sub };
+        return { subtitles: updated, interimTranscript: "" };
+      }
+
+      // Ignore if identical to any of the last 3 subtitles
       const isDup = existing.slice(-3).some((s) => {
         const existingClean = s.original_en.trim().toLowerCase().replace(/[.,!?;:'"()-\[\]]/g, '');
         return existingClean === cleanEn;
@@ -192,7 +169,9 @@ export const useAppStore = create<AppState>((set) => ({
   setInterimTranscript: (interimTranscript) => set({ interimTranscript }),
   setLatestSuggestion: (latestSuggestion) =>
     set((state) => {
-      if (!latestSuggestion) return state;
+      if (!latestSuggestion) {
+        return { latestSuggestion: null };
+      }
       if (
         state.latestSuggestion &&
         state.latestSuggestion.question.question_text.trim().toLowerCase() ===

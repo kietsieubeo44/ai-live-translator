@@ -115,6 +115,13 @@ export const KnowledgeBase: React.FC = () => {
     }
   };
 
+  const handleCloseModal = () => {
+    setNewTitle("");
+    setNewContent("");
+    setNewType("resume");
+    setShowAddModal(false);
+  };
+
   // Toggle active state
   const handleToggle = async (id: string, currentActive: boolean) => {
     const nextActive = !currentActive;
@@ -243,7 +250,7 @@ A: Tôi luôn đam mê tối ưu hiệu năng và ứng dụng AI để giải q
             className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-2 border border-slate-700 transition-all shadow-sm"
           >
             <Upload className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Tải Tệp (.txt, .md, .json)</span>
+            <span>Tải Tệp (.txt, .md, .json, .csv)</span>
           </button>
 
           <button
@@ -523,7 +530,7 @@ A: Tôi luôn đam mê tối ưu hiệu năng và ứng dụng AI để giải q
                 Thêm Tài Liệu Tri Thức Mới
               </h3>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={handleCloseModal}
                 className="text-slate-400 hover:text-white text-xs"
               >
                 ✕
@@ -581,7 +588,7 @@ A: Tôi luôn đam mê tối ưu hiệu năng và ứng dụng AI để giải q
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={handleCloseModal}
                   className="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
                 >
                   Hủy

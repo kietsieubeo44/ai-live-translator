@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { Move, Minus, Maximize2, Sparkles, X, ExternalLink, Eye } from "lucide-react";
+import { Move, Minus, Maximize2, Sparkles, X, ExternalLink, Eye, Languages } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Payload types for Tauri events
@@ -44,6 +44,13 @@ function deduplicatedAdd(
   prev: BilingualSubtitlePayload[],
   incoming: BilingualSubtitlePayload
 ): BilingualSubtitlePayload[] {
+  // If subtitle with incoming.id already exists (e.g. Gemini refinement), update it in place!
+  const existingIdx = prev.findIndex((s) => s.id === incoming.id);
+  if (existingIdx !== -1) {
+    const next = [...prev];
+    next[existingIdx] = { ...next[existingIdx], ...incoming };
+    return next;
+  }
   const tail = prev.slice(-DEDUP_WINDOW);
   const normIncoming = normalise(incoming.original_en);
   const isDuplicate = tail.some((s) => normalise(s.original_en) === normIncoming);
@@ -93,6 +100,25 @@ export const SubtitleOverlay: React.FC = () => {
     { label: "XL", w: 1300, h: 300, title: "Cực đại (1300 × 300 px)" },
   ];
   const [activePreset, setActivePreset] = useState<string>("M");
+
+  // ── Felo-inspired Display Mode (Bilingual vs VI-only vs Original-only) ────
+  const displayModes = [
+    { id: "bilingual", label: "Song ngữ", short: "Song ngữ" },
+    { id: "vi", label: "Chỉ Tiếng Việt", short: "Chỉ VI" },
+    { id: "en", label: "Chỉ Tiếng Anh", short: "Chỉ EN" },
+  ];
+  const [displayModeIdx, setDisplayModeIdx] = useState(() => {
+    const saved = localStorage.getItem("overlay_display_mode");
+    return saved ? parseInt(saved, 10) % 3 : 0;
+  });
+
+  const cycleDisplayMode = () => {
+    setDisplayModeIdx((prev) => {
+      const next = (prev + 1) % 3;
+      localStorage.setItem("overlay_display_mode", String(next));
+      return next;
+    });
+  };
 
   // ── Tauri event subscriptions ────────────────────────────────────────────
   // Keep a ref to the latest subtitles list so the event closure always sees
@@ -355,6 +381,16 @@ export const SubtitleOverlay: React.FC = () => {
             ))}
           </div>
 
+          {/* Felo Display Mode Cycle (Bilingual vs VI-only vs EN-only) */}
+          <button
+            onClick={cycleDisplayMode}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/10 text-[10px] text-amber-300 hover:text-white transition-colors border border-amber-500/20"
+            title={`Chế độ hiển thị: ${displayModes[displayModeIdx].label} (Bấm để đổi)`}
+          >
+            <Languages className="w-3 h-3 text-amber-400" />
+            <span>{displayModes[displayModeIdx].short}</span>
+          </button>
+
           {/* Opacity Cycle */}
           <button
             onClick={cycleOpacity}
@@ -415,37 +451,45 @@ export const SubtitleOverlay: React.FC = () => {
         </div>
       </div>
 
-      {/* Bilingual Subtitle Content Display */}
+      {/* Subtitle Content Display (Felo Display Mode: Bilingual / VI only / EN only) */}
       <div
         data-tauri-drag-region
         onMouseDown={handleStartDrag}
         className="flex-1 flex flex-col justify-center py-1.5 space-y-1 overflow-hidden cursor-move"
       >
-        {/* Previous Subtitle context if present */}
-        {prevSub && (
+        {/* Previous Subtitle context if present (Bilingual mode only) */}
+        {displayModes[displayModeIdx].id === "bilingual" && prevSub && (
           <p className="text-[11px] text-slate-400/80 truncate leading-tight drop-shadow">
             <span className="italic">{prevSub.original_en}</span> • <span className="text-amber-200/80">{prevSub.translated_vi}</span>
           </p>
         )}
 
-        {/* Current English Original */}
-        <p className={`${fontSizes[fontSizeIdx].en} font-medium text-white leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`}>
-          {interimTranscript ? (
-            <span className="italic text-slate-200">{interimTranscript}</span>
-          ) : currentSub ? (
-            currentSub.original_en
-          ) : (
-            <span className="text-slate-400/80 text-xs italic">
-              Đang nghe âm thanh hệ thống... (Sẵn sàng hiển thị phụ đề khi có tiếng nói)
-            </span>
-          )}
-        </p>
-
-        {/* Current Vietnamese Translation (Golden Accent) */}
-        {currentSub && (
-          <p className={`${fontSizes[fontSizeIdx].vi} font-bold text-amber-300 leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]`}>
-            {currentSub.translated_vi}
+        {/* Current English Original (Shown in 'bilingual' and 'en' modes) */}
+        {displayModes[displayModeIdx].id !== "vi" && (
+          <p className={`${fontSizes[fontSizeIdx].en} font-medium text-white leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]`}>
+            {interimTranscript ? (
+              <span className="italic text-slate-200">{interimTranscript}</span>
+            ) : currentSub ? (
+              currentSub.original_en
+            ) : (
+              <span className="text-slate-400/80 text-xs italic">
+                Đang nghe âm thanh hệ thống... (Sẵn sàng hiển thị phụ đề khi có tiếng nói)
+              </span>
+            )}
           </p>
+        )}
+
+        {/* Current Vietnamese Translation (Golden Accent - Shown in 'bilingual' and 'vi' modes) */}
+        {displayModes[displayModeIdx].id !== "en" && (
+          currentSub ? (
+            <p className={`${displayModes[displayModeIdx].id === "vi" ? fontSizes[Math.min(fontSizeIdx + 1, fontSizes.length - 1)].vi : fontSizes[fontSizeIdx].vi} font-bold text-amber-300 leading-snug drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]`}>
+              {currentSub.translated_vi}
+            </p>
+          ) : displayModes[displayModeIdx].id === "vi" && (
+            <p className="text-xs text-amber-200/70 italic">
+              Đang nghe âm thanh hệ thống... (Chế độ chỉ hiển thị Tiếng Việt)
+            </p>
+          )
         )}
       </div>
 

@@ -249,6 +249,154 @@ impl LocalDictionaryTranslationProvider {
         self.try_gemini("Hello everyone, we are testing the Gemini AI real-time translation integration.", api_key)
     }
 
+    pub fn protect_keywords(&self, text: &str) -> String {
+        self.glossary.protect_keywords(text)
+    }
+
+    /// Instant ultra-fast translation (< 35ms) using dictionary, technical glossary and Google API
+    pub fn translate_fast(&self, text: &str, _from: &str, to: &str) -> String {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+
+        // 1. Cache hit check
+        if let Ok(cache) = self.cache.lock() {
+            if let Some(cached) = cache.get(trimmed) {
+                return cached.clone();
+            }
+        }
+
+        // 2. Direct technical meeting idioms lookup
+        if let Some(vi) = self.glossary.lookup_phrase(trimmed) {
+            let result = format!("{}{}", vi, if trimmed.ends_with('?') && !vi.ends_with('?') { "?" } else { "" });
+            if let Ok(mut cache) = self.cache.lock() {
+                cache.insert(trimmed.to_string(), result.clone());
+            }
+            return result;
+        }
+
+        // 3. Ultra-fast Google Translate Chrome-Dict endpoint (~30ms, auto-detects language)
+        let target_lang = if to.is_empty() { "vi" } else { to };
+        if let Some(trans) = self.try_google_dict_chrome(trimmed, target_lang) {
+            let final_trans = self.glossary.protect_keywords(&trans);
+            if let Ok(mut cache) = self.cache.lock() {
+                cache.insert(trimmed.to_string(), final_trans.clone());
+            }
+            return final_trans;
+        }
+
+        // 4. Fallback Google Translate GTX endpoint
+        if let Some(trans) = self.try_google_gtx(trimmed, target_lang) {
+            let final_trans = self.glossary.protect_keywords(&trans);
+            if let Ok(mut cache) = self.cache.lock() {
+                cache.insert(trimmed.to_string(), final_trans.clone());
+            }
+            return final_trans;
+        }
+
+        // 5. Intelligent contextual rule-based fallback
+        let lower = trimmed.to_lowercase();
+        let translated = if lower.starts_with("can you explain") || lower.starts_with("could you explain") {
+            format!("Bạn có thể giải thích {} không?", &trimmed[15..].trim_end_matches('?'))
+        } else if lower.starts_with("can you") || lower.starts_with("could you") {
+            format!("Bạn có thể {} không?", &trimmed[7..].trim_end_matches('?'))
+        } else if lower.starts_with("what is") || lower.starts_with("what are") {
+            format!("{} là gì?", &trimmed[7..].trim_end_matches('?'))
+        } else if lower.starts_with("i believe") || lower.starts_with("i think") {
+            format!("Tôi tin rằng {}", &trimmed[9..].trim())
+        } else if lower.starts_with("how do we") || lower.starts_with("how can we") {
+            format!("Làm thế nào để chúng ta {}?", &trimmed[9..].trim_end_matches('?'))
+        } else if lower.starts_with("why did you") {
+            format!("Tại sao bạn lại {}?", &trimmed[11..].trim_end_matches('?'))
+        } else {
+            self.glossary.protect_keywords(trimmed)
+        };
+
+        let final_trans = self.glossary.protect_keywords(&translated);
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.insert(trimmed.to_string(), final_trans.clone());
+        }
+        final_trans
+    }
+
+    /// Intelligent AI Meeting Minutes & Key Takeaways Generator (inspired by Felo AI)
+    pub fn summarize_meeting(&self, transcript: &str, api_key: &str) -> std::result::Result<String, String> {
+        let key = api_key.trim();
+        if key.is_empty() {
+            return Err("Chưa có Gemini API Key để thực hiện tóm tắt cuộc họp.".to_string());
+        }
+
+        let prompt = format!(
+            "Bạn là một trợ lý thư ký cuộc họp AI chuyên nghiệp cao cấp (tương tự tính năng Felo AI Meeting Minutes).\n\
+            Dưới đây là toàn bộ nhật ký phiên dịch cuộc họp / hội thoại thực tế:\n\n\
+            \"\"\"\n{}\n\"\"\"\n\n\
+            Dựa trên nội dung thảo luận trên, hãy lập một Biên Bản Tóm Tắt Cuộc Họp & Điểm Cốt Lõi bằng Tiếng Việt theo cấu trúc chuẩn Markdown sau:\n\n\
+            ### 📌 1. Tổng Quan Cuộc Họp (Overview & Context)\n\
+            (Tóm tắt ngắn gọn 2-3 câu về bối cảnh, mục đích và chủ đề chính được trao đổi)\n\n\
+            ### 💡 2. Các Luận Điểm Thảo Luận Trọng Tâm (Key Discussion Points)\n\
+            (Liệt kê các ý kiến, vấn đề kỹ thuật và giải pháp được thảo luận dưới dạng gạch đầu dòng chi tiết)\n\n\
+            ### 🎯 3. Việc Cần Làm & Phân Công Nhiệm Vụ (Action Items & Next Steps)\n\
+            (Liệt kê các việc cần làm, ai phụ trách nếu có đề cập)\n\n\
+            ### 📖 4. Thuật Ngữ Kỹ Thuật Quan Trọng (Glossary & Tech Stack)\n\
+            (Ghi chú ngắn các công nghệ hoặc thuật ngữ nổi bật như Docker, K8s, API, AWS, Sprint...)\n\n\
+            Hãy trình bày thật chuyên nghiệp, súc tích, văn phong hiện đại, trực quan.",
+            transcript
+        );
+
+        let payload = serde_json::json!({
+            "contents": [{ "parts": [{ "text": prompt }] }],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 1800
+            }
+        });
+        let model_candidates = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"];
+        let mut last_error = String::new();
+
+        for model in &model_candidates {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+                model, key
+            );
+
+            match self.client.post(&url).json(&payload).send() {
+                Ok(resp) => {
+                    let status = resp.status();
+                    let body = resp.text().unwrap_or_default();
+
+                    if status.is_success() {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(txt) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                let clean = txt.trim().to_string();
+                                if !clean.is_empty() {
+                                    return Ok(clean);
+                                }
+                            }
+                        }
+                    } else {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                            if let Some(msg) = json["error"]["message"].as_str() {
+                                last_error = format!("Lỗi Gemini {} ({}): {}", model, status, msg);
+                                continue;
+                            }
+                        }
+                        last_error = format!("Lỗi Gemini {} HTTP {}", model, status);
+                    }
+                }
+                Err(e) => {
+                    last_error = format!("Lỗi kết nối Gemini API: {}", e);
+                }
+            }
+        }
+
+        if last_error.is_empty() {
+            Err("Gemini API không trả về nội dung tóm tắt hợp lệ".to_string())
+        } else {
+            Err(last_error)
+        }
+    }
+
     /// Primary Chrome-Extension Google Translate API (fastest, supports auto-detect)
     fn try_google_dict_chrome(&self, text: &str, target_lang: &str) -> Option<String> {
         let resp = self.client
@@ -325,18 +473,23 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
         let mode = get_translation_engine_mode();
         let gemini_key = get_global_gemini_key();
 
-        if mode == "gemini" && !gemini_key.is_empty() {
-            match self.try_gemini(trimmed, &gemini_key) {
-                Ok(gemini_res) => {
-                    let final_trans = self.glossary.protect_keywords(&gemini_res);
-                    if let Ok(mut cache) = self.cache.lock() {
-                        cache.insert(trimmed.to_string(), final_trans.clone());
+        if mode == "gemini" {
+            if !gemini_key.is_empty() {
+                match self.try_gemini(trimmed, &gemini_key) {
+                    Ok(gemini_res) => {
+                        let final_trans = self.glossary.protect_keywords(&gemini_res);
+                        if let Ok(mut cache) = self.cache.lock() {
+                            cache.insert(trimmed.to_string(), final_trans.clone());
+                        }
+                        return Ok(final_trans);
                     }
-                    return Ok(final_trans);
+                    Err(err) => {
+                        log::warn!("Gemini translation failed: {}. Falling back to fast auto-detect.", err);
+
+                    }
                 }
-                Err(err) => {
-                    log::warn!("Gemini translation failed: {}. Falling back to fast auto-detect.", err);
-                }
+            } else {
+                log::debug!("Gemini mode selected but API key is empty. Proceeding to Google Auto-Detect.");
             }
         }
 
@@ -400,4 +553,89 @@ impl TranslationProvider for LocalDictionaryTranslationProvider {
     fn is_local(&self) -> bool {
         true
     }
+}
+
+pub fn generate_local_meeting_summary(transcript: &str) -> String {
+    let lines: Vec<&str> = transcript
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !l.starts_with("===") && !l.starts_with("---"))
+        .collect();
+
+    let total_lines = lines.len();
+    if total_lines == 0 {
+        return "Chưa có đủ nội dung hội thoại để tạo biên bản tóm tắt cuộc họp.".to_string();
+    }
+
+    let mut key_points = Vec::new();
+    let mut action_items = Vec::new();
+    let mut tech_terms = Vec::new();
+
+    let tech_keywords = [
+        "Kubernetes", "Docker", "AWS", "GCP", "Azure", "API", "Database",
+        "Microservices", "Frontend", "Backend", "CI/CD", "Git", "Bug", "Sprint",
+        "React", "Rust", "Node", "PostgreSQL", "Redis", "Kafka",
+    ];
+
+    for line in &lines {
+        let lower = line.to_lowercase();
+        // Check for tech terms
+        for &kw in &tech_keywords {
+            if lower.contains(&kw.to_lowercase()) && !tech_terms.contains(&kw.to_string()) {
+                tech_terms.push(kw.to_string());
+            }
+        }
+        // Action keywords
+        if lower.contains("need to")
+            || lower.contains("cần")
+            || lower.contains("phải")
+            || lower.contains("will do")
+            || lower.contains("deploy")
+            || lower.contains("fix")
+            || lower.contains("action")
+            || lower.contains("tiến hành")
+        {
+            if action_items.len() < 5 {
+                action_items.push(line.to_string());
+            }
+        } else if key_points.len() < 6 && line.len() > 15 {
+            key_points.push(line.to_string());
+        }
+    }
+
+    let mut out = String::new();
+    out.push_str("### 📌 1. Tổng Quan Cuộc Họp (Overview)\n");
+    out.push_str(&format!(
+        "Cuộc họp gồm **{}** lượt phát biểu đã được ghi nhận và phiên dịch song ngữ tự động.\n\n",
+        total_lines
+    ));
+
+    out.push_str("### 💡 2. Các Luận Điểm Đáng Chú Ý (Key Discussion Points)\n");
+    if key_points.is_empty() {
+        out.push_str("- Đã ghi nhận các trao đổi hội thoại và kỹ thuật liên tục.\n");
+    } else {
+        for p in key_points {
+            out.push_str(&format!("- {}\n", p));
+        }
+    }
+    out.push_str("\n");
+
+    out.push_str("### 🎯 3. Việc Cần Làm & Hành Động (Action Items)\n");
+    if action_items.is_empty() {
+        out.push_str("- Tiếp tục theo dõi tiến độ các hạng mục đã thảo luận.\n");
+    } else {
+        for a in action_items {
+            out.push_str(&format!("- [ ] {}\n", a));
+        }
+    }
+    out.push_str("\n");
+
+    out.push_str("### 📖 4. Thuật Ngữ & Công Nghệ Được Nhắc Đến (Tech Terms)\n");
+    if tech_terms.is_empty() {
+        out.push_str("- Hệ thống thuật ngữ công nghệ thông dụng.\n");
+    } else {
+        out.push_str(&format!("- {}\n", tech_terms.join(", ")));
+    }
+
+    out
 }

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useAppStore } from "./stores/useAppStore";
 import { Dashboard } from "./components/dashboard/Dashboard";
+import { SubtitlesFeed } from "./components/dashboard/SubtitlesFeed";
 import { SubtitleOverlay } from "./components/overlay/SubtitleOverlay";
 import { AnswerPanel } from "./components/dashboard/AnswerPanel";
 import { SettingsModal } from "./components/settings/SettingsModal";
@@ -29,23 +30,43 @@ export const App: React.FC = () => {
       setIsOverlayMode(true);
     }
 
+    let unlistenAudio: (() => void) | undefined;
+    let unlistenSub: (() => void) | undefined;
+    let unlistenAns: (() => void) | undefined;
+
     // Initialize Tauri event listeners & device listing
     const initTauri = async () => {
+      // Sync Gemini API Key and Translation Engine settings from localStorage to Rust backend on startup
+      try {
+        const savedKey = localStorage.getItem("gemini_api_key");
+        if (savedKey) {
+          console.log("[Tauri Init] Syncing Gemini API Key to backend...");
+          await invoke("set_gemini_api_key", { key: savedKey });
+        }
+        const savedEngine = localStorage.getItem("translation_engine");
+        if (savedEngine) {
+          console.log("[Tauri Init] Syncing Translation Engine to backend:", savedEngine);
+          await invoke("set_translation_engine", { engine: savedEngine });
+        }
+      } catch (e) {
+        console.warn("[Tauri Init] Failed to sync settings to backend:", e);
+      }
+
       try {
         console.log("[Tauri Init] Subscribing to audio and subtitle events...");
         // Listen for real-time audio levels
-        await listen<number>("audio-level", (event) => {
+        unlistenAudio = await listen<number>("audio-level", (event) => {
           setAudioLevel(event.payload);
         });
 
         // Listen for bilingual subtitles
-        await listen<any>("bilingual-subtitle", (event) => {
+        unlistenSub = await listen<any>("bilingual-subtitle", (event) => {
           console.log("[Tauri Event] New bilingual subtitle:", event.payload);
           addSubtitle(event.payload);
         });
 
         // Listen for smart answer suggestions
-        await listen<any>("answer-suggestion", (event) => {
+        unlistenAns = await listen<any>("answer-suggestion", (event) => {
           console.log("[Tauri Event] New smart answer suggestion:", event.payload);
           setLatestSuggestion(event.payload);
         });
@@ -84,7 +105,7 @@ export const App: React.FC = () => {
       if (!isOverlayInitial) {
         try {
           console.log("[Tauri Init] Auto-starting capture on default device...");
-          await invoke("start_capture", { deviceId: "default", device_id: "default" });
+          await invoke("start_capture", { deviceId: "default" });
           setIsCapturing(true);
           console.log("[Tauri Init] Capture auto-started successfully!");
         } catch (e) {
@@ -94,7 +115,13 @@ export const App: React.FC = () => {
     };
 
     initTauri();
-  }, [setDevices, setIsCapturing, setAudioLevel, addSubtitle, setLatestSuggestion]);
+
+    return () => {
+      if (unlistenAudio) unlistenAudio();
+      if (unlistenSub) unlistenSub();
+      if (unlistenAns) unlistenAns();
+    };
+  }, [setDevices, setIsCapturing, setAudioLevel, addSubtitle, setLatestSuggestion, isOverlayInitial]);
 
   // If this window is the overlay, render ONLY the floating overlay widget
   if (isOverlayMode) {
@@ -177,7 +204,7 @@ export const App: React.FC = () => {
         {activeTab === "dashboard" && <Dashboard />}
         {activeTab === "answers" && <AnswerPanel />}
         {activeTab === "knowledge" && <KnowledgeBase />}
-        {activeTab === "subtitles" && <Dashboard />}
+        {activeTab === "subtitles" && <SubtitlesFeed />}
         {activeTab === "settings" && <SettingsModal />}
       </main>
     </div>

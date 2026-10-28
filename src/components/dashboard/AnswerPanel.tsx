@@ -9,11 +9,15 @@ export const AnswerPanel: React.FC = () => {
     selectedVariantStyle,
     setSelectedVariantStyle,
     setLatestSuggestion,
+    knowledgeDocs,
+    setActiveTab,
   } = useAppStore();
 
   const [copied, setCopied] = useState(false);
   const [manualQuery, setManualQuery] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+
+  const activeDocs = knowledgeDocs.filter((d) => d.is_active);
 
   const activeVariant = latestSuggestion?.variants.find(
     (v) => v.style.toLowerCase() === selectedVariantStyle.toLowerCase()
@@ -59,6 +63,31 @@ export const AnswerPanel: React.FC = () => {
           <ShieldAlert className="w-3.5 h-3.5" />
           Anti-Fabrication Guard Active
         </div>
+      </div>
+
+      {/* Knowledge Base Reference Status Banner */}
+      <div className="p-3.5 rounded-2xl bg-indigo-950/40 border border-indigo-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <BookOpen className="w-4 h-4 text-indigo-400 flex-shrink-0" />
+          <span className="text-xs text-slate-300">
+            {activeDocs.length > 0 ? (
+              <>
+                Đang đối chiếu với <strong className="text-white font-semibold">{activeDocs.length} tài liệu tri thức</strong> (CV, dự án cá nhân) để đề xuất câu trả lời chuẩn xác.
+              </>
+            ) : (
+              <>
+                Chưa kích hoạt tài liệu cá nhân. Hãy nạp CV hoặc tài liệu dự án để AI gợi ý câu trả lời chính xác theo hồ sơ của bạn.
+              </>
+            )}
+          </span>
+        </div>
+        <button
+          onClick={() => setActiveTab("knowledge")}
+          className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 flex-shrink-0 underline self-start sm:self-auto"
+        >
+          <span>Quản lý tài liệu</span>
+          <span>➔</span>
+        </button>
       </div>
 
       {/* Manual Suggestion Trigger Bar */}

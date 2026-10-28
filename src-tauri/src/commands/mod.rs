@@ -65,12 +65,13 @@ pub mod audio {
                 if let Ok(segments) = whisper.transcribe(&audio_chunk) {
                     for seg in segments {
                         sub_counter += 1;
-                        let vi_text = translator.translate(&seg.text, "en", "vi").unwrap_or_else(|_| seg.text.clone());
+                        let vi_text = translator.translate(&seg.text, "auto", "vi").unwrap_or_else(|_| seg.text.clone());
 
                         let sub_payload = serde_json::json!({
                             "id": sub_counter,
                             "original_en": seg.text,
                             "translated_vi": vi_text,
+                            "detected_lang": seg.language,
                             "is_final": true,
                             "latency_ms": seg.timestamp_ms
                         });
@@ -344,7 +345,12 @@ pub mod translation {
 }
 
 pub mod answer {
-    use crate::answer::{AnswerSuggestion, DetectedQuestion, QuestionType, SmartAnswerEngine};
+    use crate::answer::{
+        add_knowledge_doc as add_doc, clear_all_knowledge_docs as clear_docs,
+        get_all_knowledge_docs, get_combined_active_knowledge, remove_knowledge_doc as rem_doc,
+        toggle_knowledge_doc as tog_doc, AnswerSuggestion, DetectedQuestion, KnowledgeDoc,
+        QuestionType, SmartAnswerEngine,
+    };
 
     #[tauri::command]
     pub fn detect_and_answer(text: String, context: String) -> Result<Option<AnswerSuggestion>, String> {
@@ -369,6 +375,37 @@ pub mod answer {
             context_snippet: context,
         };
         Ok(engine.generate_answer(&fallback_question, true))
+    }
+
+    #[tauri::command]
+    pub fn get_knowledge_docs() -> Result<Vec<KnowledgeDoc>, String> {
+        Ok(get_all_knowledge_docs())
+    }
+
+    #[tauri::command]
+    pub fn add_knowledge_doc(title: String, content: String, doc_type: String) -> Result<KnowledgeDoc, String> {
+        Ok(add_doc(title, content, doc_type))
+    }
+
+    #[tauri::command]
+    pub fn remove_knowledge_doc(id: String) -> Result<bool, String> {
+        Ok(rem_doc(&id))
+    }
+
+    #[tauri::command]
+    pub fn toggle_knowledge_doc(id: String, is_active: bool) -> Result<bool, String> {
+        Ok(tog_doc(&id, is_active))
+    }
+
+    #[tauri::command]
+    pub fn clear_all_knowledge_docs() -> Result<(), String> {
+        clear_docs();
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub fn get_active_knowledge_context() -> Result<String, String> {
+        Ok(get_combined_active_knowledge())
     }
 }
 

@@ -6,6 +6,7 @@ import { Dashboard } from "./components/dashboard/Dashboard";
 import { SubtitleOverlay } from "./components/overlay/SubtitleOverlay";
 import { AnswerPanel } from "./components/dashboard/AnswerPanel";
 import { SettingsModal } from "./components/settings/SettingsModal";
+import { KnowledgeBase } from "./components/knowledge/KnowledgeBase";
 import {
   LayoutDashboard,
   Sparkles,
@@ -13,6 +14,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   Layers,
+  BookOpen,
 } from "lucide-react";
 
 export const App: React.FC = () => {
@@ -112,6 +114,7 @@ export const App: React.FC = () => {
             {[
               { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
               { id: "answers", label: "Smart Answer", icon: Sparkles, badge: "AI" },
+              { id: "knowledge", label: "Tài Liệu & Tri Thức", icon: BookOpen, badge: "Docs" },
               { id: "subtitles", label: "Subtitles Feed", icon: Radio },
               { id: "settings", label: "Settings & Audio", icon: SettingsIcon },
             ].map((item) => {
@@ -158,6 +161,7 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-950">
         {activeTab === "dashboard" && <Dashboard />}
         {activeTab === "answers" && <AnswerPanel />}
+        {activeTab === "knowledge" && <KnowledgeBase />}
         {activeTab === "subtitles" && <Dashboard />}
         {activeTab === "settings" && <SettingsModal />}
       </main>

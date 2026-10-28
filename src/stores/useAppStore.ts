@@ -14,7 +14,18 @@ export interface SubtitleItem {
   original_en: string;
   translated_vi: string;
   is_final: boolean;
+  detected_lang?: string;
   latency_ms?: number;
+}
+
+export interface KnowledgeDoc {
+  id: string;
+  title: string;
+  content: string;
+  is_active: boolean;
+  created_at_ms: number;
+  doc_type: string;
+  word_count: number;
 }
 
 export interface AnswerVariant {
@@ -54,10 +65,11 @@ interface AppState {
   subtitles: SubtitleItem[];
   interimTranscript: string;
 
-  // Smart Answer
+  // Smart Answer & Knowledge Base
   latestSuggestion: AnswerSuggestion | null;
   suggestionHistory: AnswerSuggestion[];
   selectedVariantStyle: string;
+  knowledgeDocs: KnowledgeDoc[];
 
   // Overlay state
   isOverlayCollapsed: boolean;
@@ -65,7 +77,7 @@ interface AppState {
   overlayOpacity: number;
 
   // Navigation
-  activeTab: "dashboard" | "answers" | "subtitles" | "settings" | "history";
+  activeTab: "dashboard" | "answers" | "subtitles" | "settings" | "history" | "knowledge";
 
   // Actions
   setDevices: (devices: AudioDevice[]) => void;
@@ -76,8 +88,12 @@ interface AppState {
   setInterimTranscript: (text: string) => void;
   setLatestSuggestion: (suggestion: AnswerSuggestion | null) => void;
   setSelectedVariantStyle: (style: string) => void;
+  setKnowledgeDocs: (docs: KnowledgeDoc[]) => void;
+  addKnowledgeDocItem: (doc: KnowledgeDoc) => void;
+  removeKnowledgeDocItem: (id: string) => void;
+  toggleKnowledgeDocItem: (id: string, is_active: boolean) => void;
   toggleOverlayCollapse: () => void;
-  setActiveTab: (tab: "dashboard" | "answers" | "subtitles" | "settings" | "history") => void;
+  setActiveTab: (tab: "dashboard" | "answers" | "subtitles" | "settings" | "history" | "knowledge") => void;
   clearSubtitles: () => void;
 }
 
@@ -133,6 +149,7 @@ export const useAppStore = create<AppState>((set) => ({
   },
   suggestionHistory: [],
   selectedVariantStyle: "Professional",
+  knowledgeDocs: [],
 
   isOverlayCollapsed: false,
   overlayFontSize: 16,
@@ -189,6 +206,13 @@ export const useAppStore = create<AppState>((set) => ({
       };
     }),
   setSelectedVariantStyle: (selectedVariantStyle) => set({ selectedVariantStyle }),
+  setKnowledgeDocs: (knowledgeDocs) => set({ knowledgeDocs }),
+  addKnowledgeDocItem: (doc) => set((state) => ({ knowledgeDocs: [...state.knowledgeDocs, doc] })),
+  removeKnowledgeDocItem: (id) => set((state) => ({ knowledgeDocs: state.knowledgeDocs.filter((d) => d.id !== id) })),
+  toggleKnowledgeDocItem: (id, is_active) =>
+    set((state) => ({
+      knowledgeDocs: state.knowledgeDocs.map((d) => (d.id === id ? { ...d, is_active } : d)),
+    })),
   toggleOverlayCollapse: () => set((state) => ({ isOverlayCollapsed: !state.isOverlayCollapsed })),
   setActiveTab: (activeTab) => set({ activeTab }),
   clearSubtitles: () => set({ subtitles: [] }),

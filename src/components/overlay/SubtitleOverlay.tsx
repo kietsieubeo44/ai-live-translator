@@ -221,6 +221,11 @@ export const SubtitleOverlay: React.FC = () => {
               LIVE
             </span>
           )}
+          {currentSub?.detected_lang && (
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+              {currentSub.detected_lang} → VI
+            </span>
+          )}
         </div>
 
         {/* Action Controls */}

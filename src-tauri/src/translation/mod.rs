@@ -156,7 +156,11 @@ impl LocalDictionaryTranslationProvider {
         }
 
         let prompt = format!(
-            "Translate this live meeting speech into fluent, natural Vietnamese. Preserve technical words (Kubernetes, Docker, API, microservices, AWS, Jira, CI/CD, Sprint, Scrum, PR, Git) in English. Return ONLY the translated sentence, without any explanation, markdown or quotes:\n\n{}",
+            "You are an expert real-time interpreter. Automatically identify the source language of the following spoken text (which may be English, Japanese, Chinese, French, Korean, German, Spanish, Vietnamese, or any other language) and translate it into natural, fluent Vietnamese.\n\
+            - If the text is already Vietnamese, polish it into clean standard Vietnamese.\n\
+            - Preserve specialized technical keywords (e.g. Kubernetes, Docker, React, API, AWS, CI/CD, Bug, Sprint, Scrum, PR, Git, SQL) in their standard technical form.\n\
+            - Return ONLY the final Vietnamese translation, without any notes, prefix, quotes, or markdown.\n\n\
+            Spoken Text:\n{}",
             text
         );
         let payload = serde_json::json!({

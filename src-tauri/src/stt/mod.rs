@@ -441,6 +441,7 @@ impl SpeechToTextProvider for LocalWhisperEngine {
         self.segment_counter += 1;
 
         let mut extracted_texts: Vec<String> = Vec::new();
+        let mut detected_language = "auto".to_string();
 
         if let (Some(cli_path), Some(model_path)) = (&self.cli_path, &self.model_path) {
             let temp_wav = std::env::temp_dir().join(format!("ai_live_{}_{}.wav", std::process::id(), self.segment_counter));
@@ -452,6 +453,8 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                     .arg(&temp_wav)
                     .arg("-t")
                     .arg("6")
+                    .arg("-l")
+                    .arg("auto")
                     .arg("--prompt")
                     .arg("Software engineering meeting, system architecture, microservices, cloud, Kubernetes, deployment.");
 
@@ -463,6 +466,19 @@ impl SpeechToTextProvider for LocalWhisperEngine {
 
                 if let Ok(output) = cmd.output() {
                     let stdout = String::from_utf8_lossy(&output.stdout);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let combined = format!("{}\n{}", stdout, stderr);
+
+                    if let Some(pos) = combined.find("language = ") {
+                        let sub = &combined[pos + 11..];
+                        if let Some(end) = sub.find(|c: char| c == ',' || c == ' ' || c == '\n' || c == '\r') {
+                            let lang_str = sub[..end].trim();
+                            if !lang_str.is_empty() {
+                                detected_language = lang_str.to_string();
+                            }
+                        }
+                    }
+
                     if let Ok(re) = regex::Regex::new(r"\[\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{2}:\d{2}:\d{2}\.\d{3}\]\s*(.+)") {
                         for cap in re.captures_iter(&stdout) {
                             if let Some(m) = cap.get(1) {
@@ -507,7 +523,7 @@ impl SpeechToTextProvider for LocalWhisperEngine {
                 is_final: true,
                 confidence: 0.95,
                 timestamp_ms: start_time.elapsed().as_millis() as u64,
-                language: "en".to_string(),
+                language: detected_language,
             };
             Ok(vec![seg])
         } else {
